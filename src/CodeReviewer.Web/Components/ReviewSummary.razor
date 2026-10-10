@@ -1,0 +1,114 @@
+@using CodeReviewer.Web.Services
+
+<article class="review-report">
+    <section class="report-overview" aria-label="خلاصهٔ بازبینی">
+        <div class="report-verdict">
+            <span class="report-kicker">خلاصهٔ گزارش</span>
+            <h2>@ReviewDecision.Title(Run)</h2>
+            <p>@(findings.Count == 0 ? "در بخش بررسی‌شده ایراد مهمی شناسایی نشد." : $"{findings.Count} ایراد قابل اقدام در {findings.Select(f => f.File).Distinct().Count()} فایل شناسایی شد.")</p>
+            @if (Run.Status != "Completed") { <p class="report-warning">این نتیجه موقت یا ناقص است؛ تکمیل بازبینی لازم است.</p> }
+        </div>
+        <div class="report-metrics">
+            <div class="report-metric urgent"><strong>@findings.Count(f => f.Severity is "critical" or "high")</strong><span>بحرانی / زیاد</span></div>
+            <div class="report-metric moderate"><strong>@findings.Count(f => f.Severity == "medium")</strong><span>متوسط</span></div>
+            <div class="report-metric minor"><strong>@findings.Count(f => f.Severity is "low" or "info")</strong><span>کم / اطلاع</span></div>
+            <div class="report-metric"><strong>@ReviewCommentFormatter.Risk(Run.Impact?.Risk)</strong><span>ریسک رگرسیون</span></div>
+        </div>
+    </section>
+    <nav class="report-navigation" aria-label="بخش‌های گزارش">
+        <a href="@($"/reviews/{Run.Id}#report-findings")">ایرادها <span>@findings.Count</span></a>
+        <a href="@($"/reviews/{Run.Id}#report-impact")">تحلیل اثر</a>
+        <a href="@($"/reviews/{Run.Id}#report-tests")">تست‌های پیشنهادی <span>@(Run.Impact?.ManualTests.Count ?? 0)</span></a>
+        <a href="@($"/reviews/{Run.Id}#report-readiness")">آمادگی انتشار</a>
+    </nav>
+    <section id="report-findings" class="report-section">
+        <div class="report-section-heading"><div><span class="report-kicker">۰۱ / یافته‌ها</span><h2>ایرادهای قابل اقدام</h2><p>به ترتیب شدت؛ جزئیات هر ایراد را برای بررسی باز کنید.</p></div></div>
+        @if (findings.Count > 0)
+        {
+            <div class="report-filters">
+                <label class="report-search">جست‌وجو در ایرادها<input type="search" @bind="search" @bind:event="oninput" placeholder="عنوان، مسیر فایل یا توضیحات…" /></label>
+                <label>شدت ایراد<select @bind="severity"><option value="all">همهٔ شدت‌ها</option><option value="urgent">بحرانی / زیاد</option><option value="medium">متوسط</option><option value="minor">کم / اطلاع</option></select></label>
+                <span class="report-result-count" role="status">@visible.Count از @findings.Count ایراد</span>
+            </div>
+            @if (visible.Count == 0) { <div class="report-empty">ایرادی مطابق جست‌وجو و فیلتر انتخاب‌شده پیدا نشد.</div> }
+            @foreach (var item in visible)
+            {
+                var f = item.Finding;
+                <details class="report-finding @SeverityClass(f.Severity)" @key="item.Number">
+                    <summary>
+                        <span class="report-finding-number">@item.Number.ToString("00")</span>
+                        <div class="report-finding-title"><div class="report-finding-meta"><span class="report-severity @SeverityClass(f.Severity)">@SeverityLabel(f.Severity)</span><span>@CategoryLabel(f.Category)</span></div><h3><ReviewText Text="@f.Title" /></h3><bdi class="report-location">@f.File:@f.Line</bdi></div>
+                        <span class="report-disclosure" aria-hidden="true">⌄</span>
+                    </summary>
+                    <div class="report-finding-body">
+                        <div class="report-detail"><h4>شرح ایراد</h4><p><ReviewText Text="@f.Description" /></p></div>
+                        <div class="report-detail report-consequence"><h4>اثر و پیامد</h4><p><ReviewText Text="@f.Impact" /></p></div>
+                        <div class="report-detail report-remedy"><h4>پیشنهاد اصلاح</h4><p><ReviewText Text="@f.Suggestion" /></p></div>
+                        @if (!string.IsNullOrWhiteSpace(f.ChangeReason)) { <div class="report-detail"><h4>ارتباط با این تغییر</h4><p><ReviewText Text="@f.ChangeReason" /></p></div> }
+                        @if (!string.IsNullOrWhiteSpace(f.Evidence)) { <div class="report-detail"><h4>شاهد کد</h4><pre class="report-evidence"><code>@f.Evidence</code></pre></div> }
+                    </div>
+                </details>
+            }
+        }
+        else { <div class="report-empty">ایراد قابل اقدام با شاهد کافی ثبت نشده است.</div> }
+    </section>
+    <section id="report-impact" class="report-section report-surface">
+        <div class="report-section-heading"><div><span class="report-kicker">۰۲ / دامنهٔ تغییر</span><h2>تحلیل اثر</h2></div><span class="report-tag">ریسک: @ReviewCommentFormatter.Risk(Run.Impact?.Risk)</span></div>
+        @if (Run.Impact is { } impact)
+        {
+            <div class="report-impact-grid">
+                @foreach (var feature in impact.Direct) { <div class="report-detail"><h4>اثر مستقیم · @feature.Feature</h4><p><ReviewText Text="@feature.Evidence" /></p></div> }
+                @foreach (var feature in impact.Possible) { <div class="report-detail"><h4>اثر احتمالی · @feature.Feature</h4><p><ReviewText Text="@feature.Evidence" /></p></div> }
+            </div>
+            @if (!impact.ContextConfigured || impact.UnmappedFiles > 0) { <p class="report-warning">نگاشت قابلیت‌ها کامل نیست؛ اثر تغییرات خارج از نقشهٔ مخزن باید بررسی شود.</p> }
+            @if (impact.Direct.Count == 0 && impact.ContextConfigured) { <p>قابلیت منطبق با نقشه شناسایی نشد.</p> }
+        }
+        else { <p>این اجرای قدیمی تحلیل اثر ساختاریافته ندارد؛ بازبینی تازه لازم است.</p> }
+    </section>
+    <section id="report-tests" class="report-section report-surface">
+        <div class="report-section-heading"><div><span class="report-kicker">۰۳ / اعتبارسنجی</span><h2>تست دستی رگرسیون</h2><p>سناریوهای پیشنهادی؛ نتیجهٔ اجرای تست ثبت نشده است.</p></div><span class="report-tag">اجرا نشده</span></div>
+        <p class="report-ui-status">تست دستی UI: @(Run.Impact is null ? "نیازمند تعیین" : Run.Impact.ManualTests.Any(t => !string.IsNullOrWhiteSpace(t.UiPath)) ? "سناریوی UI در دسترس است" : "سناریوی UI تأییدشده در دسترس نیست")</p>
+        @if (Run.Impact is { } tests)
+        {
+            @foreach (var entry in tests.ManualTests.Take(8).Select((test, index) => (Test: test, Number: index + 1)))
+            {
+                <div class="report-test"><span class="report-test-number">@entry.Number.ToString("00")</span><div>
+                    @if (!string.IsNullOrWhiteSpace(entry.Test.UiPath)) { <bdi class="report-tag">@entry.Test.UiPath</bdi> }
+                    <p><ReviewText Text="@entry.Test.Steps" /></p><div class="report-expected"><strong>نتیجهٔ مورد انتظار</strong><p><ReviewText Text="@entry.Test.Expected" /></p></div>
+                </div></div>
+            }
+            @if (tests.ManualTests.Count > 8) { <a class="button button-secondary report-all-tests" href="@($"/reviews/{Run.Id}/tests")">مشاهدهٔ همهٔ @tests.ManualTests.Count سناریوی تست ←</a> }
+            @if (tests.ManualTests.Count == 0) { <p>سناریوی مشخص با شاهد کافی تولید نشد؛ مسیرهای محصول را در نقشهٔ مخزن تکمیل کنید.</p> }
+            @if (tests.RelatedTests.Count > 0) { <p>@tests.RelatedTests.Count فایل تست در تغییرات دیده شد؛ اجرای آن‌ها انجام نشده است.</p> }
+        }
+        else { <p>سناریوی ثبت‌شده‌ای وجود ندارد.</p> }
+    </section>
+    <section id="report-readiness" class="report-section report-readiness @(blockers > 0 ? "blocked" : "")">
+        <span class="report-kicker">۰۴ / تصمیم انتشار</span><h2>آمادگی انتشار</h2>
+        <p class="report-readiness-title">@(blockers > 0 ? $"{blockers} ایراد مسدودکننده باید پیش از انتشار رفع شود." : "ایراد مسدودکننده‌ای در بخش بررسی‌شده شناسایی نشد.")</p>
+        @if (Run.Status != "Completed") { <p>تکمیل بازبینی لازم است.</p> }
+        <p>سناریوهای پیشنهادی اجرا نشده‌اند؛ نتیجه تضمین آمادگی Production نیست.</p>
+    </section>
+</article>
+
+@code {
+    [Parameter, EditorRequired] public ReviewRun Run { get; set; } = default!;
+    private IReadOnlyList<ReviewFinding> findings = [];
+    private string search = "", severity = "all";
+    private Guid? currentRun;
+    private int blockers;
+    private List<(ReviewFinding Finding, int Number)> visible => findings.Select((f, i) => (Finding: f, Number: i + 1))
+        .Where(item => (severity switch { "urgent" => item.Finding.Severity is "critical" or "high", "medium" => item.Finding.Severity == "medium", "minor" => item.Finding.Severity is "low" or "info", _ => true })
+            && string.Join(" ", item.Finding.Title, item.Finding.File, item.Finding.Description, item.Finding.Impact, item.Finding.Suggestion).Contains(search.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+    protected override void OnParametersSet()
+    {
+        if (currentRun != Run.Id) { search = ""; severity = "all"; currentRun = Run.Id; }
+        findings = ReviewCommentFormatter.Important(Run).OrderByDescending(f => ReviewProfile.SeverityRank(f.Severity)).ToArray();
+        blockers = findings.Count(f => ReviewProfile.SeverityRank(f.Severity) >= ReviewProfile.SeverityRank(Run.Profile?.BlockingSeverity ?? "medium"));
+    }
+    private static string SeverityClass(string value) => value switch { "critical" or "high" => "urgent", "medium" => "moderate", _ => "minor" };
+    private static string SeverityLabel(string value) => value switch { "critical" => "بحرانی", "high" => "زیاد", "medium" => "متوسط", "low" => "کم", "info" => "اطلاع", _ => value };
+    private static string CategoryLabel(string value) => ReviewDomain.Available.GetValueOrDefault(value, value);
+}
+
+

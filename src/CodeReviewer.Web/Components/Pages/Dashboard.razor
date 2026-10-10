@@ -1,0 +1,13 @@
+@page "/"
+@using CodeReviewer.Web.Services
+@inject SqlDataStore Database
+@inject ConnectionCatalogStore Catalog
+<PageTitle>خانه | بازبین کد</PageTitle>
+<div class="page-heading"><div><div class="eyebrow">فضای کار تیم توسعه</div><h1>از کد تا تصمیم روشن.</h1><p>یک درخواست را انتخاب کنید، تغییرات را بخوانید و بازبینی را با روش دلخواه اجرا کنید.</p></div><span class="workspace-badge">CODE REVIEW / WORKSPACE</span></div>
+<section class="home-intro"><div><span class="section-kicker">قدم بعدی شما</span><h2>بازبینی را از یک درخواست شروع کنید</h2><p>مدل و میزان سخت‌گیری را هنگام شروع انتخاب می‌کنید. نتیجه، یافته‌ها و وضعیت انتشار در گزارش مستقل هر اجرا قرار می‌گیرند.</p><a class="button button-primary" href="/requests">انتخاب درخواست ←</a></div><div class="process-track"><span><b>01</b> انتخاب درخواست</span><i></i><span><b>02</b> خواندن تغییرات و بازبینی</span><i></i><span><b>03</b> گزارش و اقدام</span></div></section>
+<div class="section-heading"><h2>دسترسی به بخش‌ها</h2><span>هر بخش، یک هدف مشخص</span></div>
+<div class="destination-grid">
+<a class="destination-card" href="/history"><span>REVIEW HISTORY</span><h2>سوابق بازبینی</h2><p>گزارش‌های اجراشده و وضعیت نتیجهٔ هر بررسی.</p><b>مشاهدهٔ سوابق ←</b></a>
+<a class="destination-card" href="/profiles"><span>REVIEW PROFILES</span><h2>روش‌های بازبینی</h2><p>پرامپت، سخت‌گیری و زمان انتظار مدل را کنترل کنید.</p><b>مدیریت پروفایل‌ها ←</b></a>
+<a class="destination-card" href="/settings"><span>CONNECTIONS</span><h2>اتصال‌های سامانه</h2><p>سورس کنترل و سرویس‌های AI خود را متصل کنید.</p><b>مدیریت اتصال‌ها ←</b></a>
+</div>

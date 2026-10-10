@@ -1,0 +1,221 @@
+@page "/requests"
+@page "/request/{View}"
+@using CodeReviewer.Web.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject SourceControlService Sources
+@inject ConnectionCatalogStore Catalog
+@inject SqlDataStore Database
+@inject ReviewWorkspaceService Workspace
+@inject AuthenticationStateProvider Authentication
+@inject AiReviewService Reviewer
+@inject ReviewJobQueue Queue
+@inject NavigationManager Navigation
+
+<NavigationLock ConfirmExternalNavigation="@HasDraft" OnBeforeInternalNavigation="GuardNavigation" />
+<PageTitle>@PageName | بازبین کد</PageTitle>
+<div class="page-heading"><div><div class="eyebrow">@(View is null ? "فضای کار / درخواست‌ها" : "فضای کار / درخواست انتخاب‌شده")</div><h1>@PageName</h1><p>@PageHint</p></div>@if(View is not null) { <a class="button button-secondary" href="/requests">بازگشت به درخواست‌ها</a> }</div>@if (message is not null) { <div class="notice success" role="status">@message</div> }
+@if (error is not null) { <div class="notice error" role="alert">@error</div> }
+@if (busy) { <div class="notice" role="status">@progress</div> }
+@if(View is null) {
+<fieldset class="connection-fieldset" disabled="@busy">
+<section class="panel">
+    <div class="panel-heading"><div><h2>درخواست‌های ادغام و Pull Requestها</h2><p>فهرست ذخیره‌شده را ببینید یا مخزن را برای دریافت آخرین وضعیت انتخاب کنید.</p></div><span class="count-badge">@requests.Count درخواست</span></div>
+    <div class="filters">
+        <label>اتصال<select @bind="sourceId" @bind:after="LoadRepositories"><option value="@Guid.Empty">انتخاب اتصال فعال</option>@foreach(var source in sources) { <option value="@source.Id">@source.Name · @source.Provider</option> }</select></label>
+        <label>مخزن<select @bind="repositoryId"><option value="">انتخاب مخزن</option>@foreach(var repo in repositories) { <option value="@repo.Id">@repo.Path</option> }</select></label>
+        <div class="filter-action"><button class="button button-primary" disabled="@(sourceId == Guid.Empty || repositoryId.Length == 0 || HasDraft)" @onclick="Sync">همگام‌سازی درخواست‌های باز</button></div>
+    </div>
+    <div class="request-search"><label>جست‌وجو در فهرست<input @bind="search" @bind:event="oninput" @bind:after="()=>listPage=1" placeholder="عنوان، نویسنده یا شمارهٔ درخواست" /></label><span>اطلاعات ذخیره‌شده؛ تازگی با همگام‌سازی تأیید می‌شود.</span></div>
+    @if (sources.Count == 0) { <div class="report-note">برای دریافت جزئیات و Diff از مخزن، اتصال سورس کنترل را تکمیل کنید. برای بازبینی دستی نیازی به مدل AI ندارید.</div> }
+    @if (!Filtered.Any()) { <div class="empty-state">درخواستی مطابق جست‌وجوی شما وجود ندارد.</div> }
+    @foreach(var request in Filtered.Skip((listPage-1)*15).Take(15))
+    {
+        <div class="mr-row @(selected == request ? "selected-request" : "")"><span class="mr-icon">⑂</span><div class="mr-main"><strong>@request.Title</strong><div class="mr-meta">@SourceName(request.ConnectionId) · مخزن <bdi>@request.RepositoryId</bdi> · #@request.Number · @request.Author</div></div><button class="button button-secondary" disabled="@HasDraft" @onclick="() => Select(request)">باز کردن بررسی</button></div>
+    }
+</section>
+<div class="pagination"><button class="button button-secondary" disabled="@(listPage==1)" @onclick="()=>listPage--">قبلی</button><span>صفحهٔ @(listPage)</span><button class="button button-secondary" disabled="@(listPage*15>=Filtered.Count())" @onclick="()=>listPage++">بعدی</button></div>
+</fieldset>
+}
+@if (selected is not null && View is not null)
+{
+    <div class="workspace-context"><div><strong><bdi>@selected.Title</bdi></strong><small>@selected.Author · #@selected.Number</small></div><a class="text-button" href="@selected.WebUrl" target="_blank" rel="noopener noreferrer">مشاهده در GitLab / GitHub ↗</a></div>
+    <nav class="task-links" aria-label="صفحه‌های این درخواست">
+        @foreach(var task in Tasks) { <a class="@(View==task.Key ? "active" : "")" href="@TaskUrl(task.Key)">@task.Value</a> }
+    </nav>
+    @if(View == "review") {
+        @if(liveRunId is not null) { <a class="button button-primary" href="@($"/reviews/{liveRunId}")">مشاهدهٔ گزارش آخرین اجرا ←</a> }
+    }
+    <fieldset class="connection-fieldset" disabled="@busy">    @if(View=="changes") {
+    <section class="panel">
+
+        <div class="diff-branch">وضعیت: @(selected.State is "open" or "opened" ? "باز" : string.IsNullOrEmpty(selected.State) ? "هنوز همگام‌سازی نشده" : selected.State) · شاخهٔ مبدأ <bdi>@selected.SourceBranch</bdi> ← مقصد <bdi>@selected.TargetBranch</bdi></div>
+        @if(!string.IsNullOrWhiteSpace(selected.Description)) { <details class="request-description"><summary>توضیحات درخواست</summary><div class="review-entry-text">@selected.Description</div></details> }
+        <div class="review-toolbar"><span>@files.Count فایل دریافت‌شده</span><button class="button button-primary" disabled="@(selected.Sha.Length == 0 || HasDraft)" @onclick="LoadChanges">@(files.Count==0 ? "دریافت تغییرات" : "به‌روزرسانی تغییرات")</button></div>
+        @if (files.Count == 0) { <div class="empty-state">برای شروع، تغییرات این نسخه را دریافت کنید. اگر نسخه مشخص نیست، ابتدا فهرست مخزن را همگام‌سازی کنید.</div> }
+        else
+        {
+            <div class="review-workbench">
+                <nav class="file-browser" aria-label="فایل‌های تغییرکرده"><input class="file-search" aria-label="جست‌وجوی فایل" placeholder="جست‌وجوی فایل…" @bind="fileSearch" @bind:event="oninput" />@foreach(var file in files.Where(x=>x.Path.Contains(fileSearch,StringComparison.OrdinalIgnoreCase))) { <button class="file-choice @(currentFile == file ? "active" : "")" disabled="@HasDraft" @onclick="() => SelectFile(file)"><bdi title="@file.Path">@file.Path.Split('/').Last()</bdi><small class="file-directory" title="@file.Path">@file.Path</small>@if(file.Generated) { <small>تولیدشده</small> } @if(file.TooLarge) { <small>Diff محدودشده توسط سرویس</small> }</button> }</nav>
+                <div class="diff-pane">
+                @if(currentFile is not null)
+                {
+                    <CodeReviewer.Web.Components.DiffViewer File="currentFile" OnLineSelected="SelectNoteLine" />
+                }
+                </div>
+            </div>
+        }
+    </section>
+    }
+    @if(View=="review") {
+    <section class="panel"><div class="panel-heading"><div><h2>شروع بازبینی</h2><p>برای مقایسه، همین درخواست را با مدل یا پروفایل دیگری دوباره بررسی کنید؛ هر اجرا گزارش جداگانه دارد.</p></div><a href="/profiles" class="text-button">مدیریت پروفایل‌ها</a></div><div class="filters"><label>روش بازبینی<select @bind="profileId" @bind:after="SelectProfile">@foreach(var p in profiles) { <option value="@p.Id">@p.Name</option> }</select></label><label>مدل این اجرا<select @bind="modelId"><option value="@Guid.Empty">انتخاب مدل فعال</option>@foreach(var m in models) { <option value="@m.Id">@m.Name · @m.Model</option> }</select></label><label class="check-field"><input type="checkbox" @bind="publishToMergeRequest" /> کامنت‌گذاری و ارسال نتیجه روی Merge Request</label><div class="filter-action"><button class="button button-primary" disabled="@(modelId==Guid.Empty || selected.Sha.Length==0)" @onclick="FullReview">شروع بازبینی</button><a class="text-button" href="/history">گزارش اجراها</a></div></div></section>
+    <div class="notice">حوزه‌ها: @string.Join("، ",(profiles.FirstOrDefault(p=>p.Id==profileId)?.Domains ?? []).Select(d=>ReviewDomain.Available[d.Key])) · همهٔ فایل‌های متنی بررسی می‌شوند. مهلت پاسخ هر بخش: @(profiles.FirstOrDefault(x=>x.Id==profileId)?.ModelTimeoutSeconds ?? 60) ثانیه. اگر پاسخ یک بخش کامل نباشد، آن فایل ناموفق ثبت می‌شود و فایل‌های دیگر ادامه می‌یابند. می‌توانید مدل یا پروفایل را عوض کنید و دوباره «شروع بازبینی» را بزنید.</div>
+    }
+    @if(View is "note" or "help" or "decision" or "notes") {
+    @if(View is "note" or "help") { <div class="panel review-form"><label>فایل<select @bind="selectedFilePath" @bind:after="ChangeFile">@foreach(var f in files) { <option value="@f.Path">@f.Path</option> }</select></label></div> }
+    @if(View == "note") {
+        <section class="panel"><div class="panel-heading"><div><h2>یادداشت من</h2><p>@(currentFile is null ? "یادداشت دربارهٔ درخواست" : "یادداشت دربارهٔ فایل انتخاب‌شده")</p></div></div>
+            <div class="review-form"><label>خط افزوده (اختیاری)<input type="number" min="1" @bind="noteLine" disabled="@(currentFile is null)" /></label><label>نکته یا مسئله‌ای که پیدا کردید<textarea @bind="note" @bind:event="oninput" maxlength="8000" rows="5" placeholder="رفتار مورد انتظار، مشکل و پیشنهاد خود را بنویسید…"></textarea></label><button class="button button-primary" disabled="@string.IsNullOrWhiteSpace(note)" @onclick="SaveNote">ذخیرهٔ یادداشت</button></div>
+        </section>
+        } @if(View == "help") {
+        <section class="panel ai-chat"><div class="panel-heading"><div><h2>گفتگو با AI</h2><p>گفتگو برای فایل و نسخهٔ انتخاب‌شده ذخیره می‌شود. مدل فقط Diff همین فایل و چند پیام اخیر گفتگو را می‌بیند؛ مهلت هر بخش ۶۰ ثانیه است.</p></div><span class="default-pill">اختیاری</span></div>
+            <div class="ai-chat-thread" role="log" aria-label="گفتگوی پرسش از AI">
+                @if (!HelpConversation.Any()) { <div class="ai-chat-empty">هنوز پرسشی دربارهٔ این فایل و نسخه ثبت نشده است.</div> }
+                @foreach(var item in HelpConversation) {
+                    <div class="ai-chat-message user"><div class="ai-chat-meta">شما · @item.Entry.CreatedUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</div><div class="ai-chat-body">@item.Exchange.Question</div></div>
+                    <div class="ai-chat-message assistant"><div class="ai-chat-meta">AI · @item.Exchange.Model</div><div class="ai-chat-body">@item.Exchange.Answer</div></div>
+                }
+                @if (busy && View == "help") { <div class="ai-chat-message assistant pending" role="status">مدل در حال پاسخ‌دادن است…</div> }
+            </div>
+            <div class="review-form ai-chat-composer"><label>مدل<select @bind="modelId"><option value="@Guid.Empty">انتخاب مدل فعال</option>@foreach(var model in models) { <option value="@model.Id">@model.Name · @model.Model</option> }</select></label><label>پرسش شما<textarea @bind="question" @bind:event="oninput" maxlength="2000" rows="3" placeholder="مثلاً آیا این تغییر می‌تواند خطای هم‌زمانی ایجاد کند؟"></textarea></label>
+            @if (HelpUnavailableReason is not null) { <div class="report-note" role="status">@HelpUnavailableReason</div> }
+            <button type="button" class="button button-primary" disabled="@(busy || HelpUnavailableReason is not null || string.IsNullOrWhiteSpace(question))" @onclick="Ask">@(busy ? "در حال پاسخ…" : "ارسال پرسش")</button></div>
+        </section>
+    } @if(View == "decision") {
+    <section class="panel"><div class="panel-heading"><div><h2>جمع‌بندی بررسی من</h2><p>جمع‌بندی در سامانه ذخیره می‌شود؛ تأیید یا نظر در GitLab/GitHub منتشر نمی‌شود.</p></div></div><div class="review-form"><label>نتیجه<select @bind="decision"><option value="Reviewed">بررسی شد</option><option value="ChangesRequested">نیازمند اصلاح</option><option value="NeedsDiscussion">نیازمند گفتگو</option></select></label><label>خلاصهٔ بررسی<textarea rows="3" maxlength="8000" @bind="summary" @bind:event="oninput"></textarea></label><button class="button button-primary" disabled="@(selected.Sha.Length == 0 || string.IsNullOrWhiteSpace(summary))" @onclick="SaveDecision">ثبت جمع‌بندی این نسخه</button></div></section>
+    }
+    @if(HasDraft) { <div class="notice">متن ذخیره‌نشده دارید. پیش از تغییر درخواست یا فایل، آن را ذخیره یا پاک کنید. <button class="text-button" @onclick="ClearDraft">پاک کردن متن‌های ذخیره‌نشده</button></div> }
+    @if(View == "notes") {
+    <section class="panel"><div class="panel-heading"><h2>یادداشت‌ها و گفتگوهای این درخواست</h2><span class="count-badge">@entries.Count مورد</span></div>
+    @if(entries.Count == 0) { <div class="empty-state">اولین یادداشت خود را ثبت کنید.</div> }
+    @foreach(var entry in entries)
+    {
+        <article class="finding"><span class="category">@EntryTitle(entry)</span><span class="mr-meta">@entry.Author · @entry.CreatedUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm")</span><div class="finding-location"><bdi>@entry.File @(entry.Line is null ? "" : $":{entry.Line}")</bdi> · نسخه <bdi>@(entry.Sha.Length == 0 ? "نامشخص" : entry.Sha[..Math.Min(8,entry.Sha.Length)])</bdi> @(entry.Sha != selected.Sha ? "(نسخهٔ متفاوت)" : "")</div>@if(entry.Kind=="AiHelp" && ReviewWorkspaceService.ParseAiHelp(entry.Text) is { } exchange) { <div class="review-entry-text"><strong>پرسش:</strong> @exchange.Question<br /><strong>پاسخ (@exchange.Model):</strong><br />@exchange.Answer</div> } else { <div class="review-entry-text">@entry.Text</div> }</article>
+    }
+    </section>
+    }
+    }
+</fieldset>
+}
+
+@code {
+    [Parameter] public string? View {get;set;}
+    [SupplyParameterFromQuery(Name="file")] public string? RequestedFile {get;set;}
+    [SupplyParameterFromQuery(Name="line")] public int? RequestedLine {get;set;}
+    private static readonly Dictionary<string,string> Tasks = new() { ["changes"]="تغییرات کد", ["review"]="شروع بازبینی", ["notes"]="یادداشت‌ها", ["note"]="نوشتن یادداشت", ["help"]="پرسش از AI", ["decision"]="جمع‌بندی من" };
+    private string PageName => View is null ? "درخواست‌های ادغام" : Tasks.GetValueOrDefault(View,"درخواست");
+    private string PageHint => View switch { null=>"درخواست موردنظر را پیدا کنید و وارد صفحهٔ تغییرات شوید.", "review"=>"روش و مدل را انتخاب کنید؛ نتیجه در صفحهٔ گزارش نمایش داده می‌شود.", "changes"=>"فایل‌ها را انتخاب کنید و تغییرات این نسخه را بخوانید.", "help"=>"یک پرسش مشخص دربارهٔ فایل انتخاب‌شده بپرسید.", _=>"هر یادداشت به نسخهٔ مشخصی از کد تعلق دارد." };
+    private string TaskUrl(string view) => selected is null ? "/requests" : $"/request/{view}?source={selected.ConnectionId}&repo={Uri.EscapeDataString(selected.RepositoryId)}&number={selected.Number}" + (currentFile is null ? "" : "&file="+Uri.EscapeDataString(currentFile.Path)) + (noteLine is null ? "" : "&line="+noteLine);
+    [SupplyParameterFromQuery(Name="source")] public Guid? RequestedSource {get;set;}
+    [SupplyParameterFromQuery(Name="repo")] public string? RequestedRepository {get;set;}
+    [SupplyParameterFromQuery(Name="number")] public int? RequestedNumber {get;set;}
+    private void GuardNavigation(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context) { if(HasDraft) { context.PreventNavigation(); error="متن ذخیره‌نشده دارید؛ ابتدا ذخیره کنید یا متن را پاک کنید."; } }
+    private Guid? liveRunId;
+
+
+
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if(busy) return;
+        var request=requests.FirstOrDefault(x=>x.ConnectionId==RequestedSource && x.RepositoryId==RequestedRepository && x.Number==RequestedNumber);
+        if(View is null && request is not null) { Select(request); return; }
+        if(request is not null && request != selected) Select(request,false);
+        if(View is not null && selected is null) { error="درخواست پیدا نشد؛ از فهرست درخواست‌ها دوباره انتخاب کنید."; return; }
+        if(View is "changes" or "help" or "note" && selected is not null && files.Count==0)
+            await Run("در حال دریافت فایل‌ها…",async()=> { files=await Workspace.LoadChangesAsync(selected); });
+        if(files.Count>0 && currentFile is null) currentFile=files.FirstOrDefault(f=>f.Path==RequestedFile) ?? files.First();
+        if(RequestedLine is not null) noteLine=RequestedLine;
+        if(View=="notes" && selected is not null) entries=Database.ReviewEntries(selected);
+    }    private IReadOnlyList<MergeRequestItem> requests = [];
+    private IReadOnlyList<RepositoryItem> repositories = [];
+    private IReadOnlyList<SourceConnection> sources = [];
+    private IReadOnlyList<AiConnection> models = [];
+    private IReadOnlyList<ChangedFile> files = [];
+    private IReadOnlyList<ReviewEntry> entries = [];
+    private sealed record HelpMessage(ReviewEntry Entry, AiHelpExchange Exchange);
+    private IEnumerable<HelpMessage> HelpConversation => entries
+        .Where(x=>x.Kind=="AiHelp" && x.Sha==selected?.Sha && x.File==currentFile?.Path)
+        .OrderBy(x=>x.CreatedUtc).ThenBy(x=>x.Id)
+        .Select(x=>new HelpMessage(x,ReviewWorkspaceService.ParseAiHelp(x.Text)!))
+        .Where(x=>x.Exchange is not null);
+    private string? HelpUnavailableReason => models.Count==0 ? "برای شروع، یک مدل فعال در مدیریت اتصال‌ها اضافه کنید." :
+        modelId==Guid.Empty ? "برای شروع، مدل فعال را انتخاب کنید." :
+        currentFile is null ? "فایلی برای پرسش آماده نیست؛ ابتدا تغییرات درخواست را دریافت کنید." :
+        currentFile.Generated ? "Diff فایل‌های تولیدشده برای پرسش AI پشتیبانی نمی‌شود؛ فایل دیگری انتخاب کنید." :
+        currentFile.TooLarge ? "Diff این فایل توسط سرویس محدود شده است؛ فایل دیگری انتخاب کنید." :
+        string.IsNullOrWhiteSpace(currentFile.Diff) ? "این فایل Diff قابل تحلیل ندارد؛ فایل دیگری انتخاب کنید." : null;
+    private MergeRequestItem? selected;
+    private ChangedFile? currentFile;
+    private Guid sourceId, modelId;
+    private string repositoryId = "", search = "", note = "", question = "", summary = "", decision = "Reviewed", author = "";
+    private int? noteLine;
+    private string fileSearch = "";
+    private string selectedFilePath { get=>currentFile?.Path ?? ""; set=>currentFile=files.FirstOrDefault(f=>f.Path==value); }
+    private void ChangeFile() { noteLine=null; }
+    private Guid profileId;
+    private bool publishToMergeRequest;
+    private IReadOnlyList<ReviewProfile> profiles=[];
+    private void SelectNoteLine(int line) { noteLine=line; Navigation.NavigateTo(TaskUrl("note")); }
+    private void SelectProfile() { var p=profiles.FirstOrDefault(x=>x.Id==profileId); if(p?.ModelId is Guid id) modelId=id; }
+    private int listPage=1;
+    private bool busy;
+    private string? error, message, progress;
+    private bool HasDraft => note.Length > 0 || summary.Length > 0 || question.Length > 0;
+    private IEnumerable<MergeRequestItem> Filtered => requests.Where(x => $"{x.Title} {x.Author} {x.Number}".Contains(search,StringComparison.OrdinalIgnoreCase));
+    protected override async Task OnInitializedAsync()
+    {
+        var catalog = Catalog.Snapshot(); sources = catalog.Sources.Where(x => x.Enabled).ToArray(); models = catalog.Models.Where(x => x.Enabled).ToArray();
+        modelId = catalog.DefaultModelId ?? Guid.Empty; requests = Database.KnownRequests(); profiles=Database.Profiles(); profileId=(profiles.FirstOrDefault(x=>x.Strictness=="Balanced") ?? profiles.First()).Id; SelectProfile();
+        author = (await Authentication.GetAuthenticationStateAsync()).User.Identity?.Name ?? "کاربر توسعهٔ محلی";
+    }
+    private string SourceName(Guid id) => Catalog.Snapshot().Sources.FirstOrDefault(x => x.Id == id)?.Name ?? "اتصال حذف‌شده";
+    private void Select(MergeRequestItem request,bool navigate=true) { selected=request; files=[]; currentFile=null; entries=Database.ReviewEntries(request); error=null; message=null; noteLine=null; publishToMergeRequest=false; liveRunId=Database.History().FirstOrDefault(x=>x.MergeRequest.ConnectionId==request.ConnectionId && x.MergeRequest.RepositoryId==request.RepositoryId && x.MergeRequest.Number==request.Number)?.Id; if(navigate) Navigation.NavigateTo(TaskUrl("changes")); }
+    private void SelectFile(ChangedFile file) { currentFile=file; noteLine=null; }
+    private void ClearDraft() { note=""; summary=""; question=""; noteLine=null; }
+    private async Task Run(string title, Func<Task> action)
+    {
+        if(busy) return; busy=true; progress=title; error=null; message=null;
+        await InvokeAsync(StateHasChanged);
+        await Task.Yield();
+        try { await action(); }
+        catch(TimeoutException ex) { error=ex.Message; }
+        catch(OperationCanceledException) { error="اجرا لغو شد. می‌توانید مدل و پروفایل را تغییر دهید و دوباره بررسی کنید."; }
+        catch(ArgumentException ex) { error=ex.Message; }
+        catch(InvalidOperationException ex) { error=ex.Message; }
+        catch(Exception ex) { error="عملیات تکمیل نشد؛ وضعیت اتصال و گواهی سرویس را بررسی کنید. " + ex.GetType().Name; }
+        finally { busy=false; }
+    }
+    private Task LoadRepositories() => Run("در حال دریافت مخزن‌ها…", async () => { repositories=[]; repositoryId=""; if(sourceId != Guid.Empty) repositories=await Sources.GetRepositoriesAsync(sourceId); });
+    private Task Sync() => Run("در حال همگام‌سازی درخواست‌های باز…", async () => { requests=await Sources.GetOpenRequestsAsync(sourceId,repositoryId); listPage=1; selected=null; files=[]; currentFile=null; message="فهرست مخزن همگام‌سازی شد."; });
+    private Task LoadChanges() => Run("در حال دریافت Diff و کنترل نسخه…", async () => { files=[]; currentFile=null; files=await Workspace.LoadChangesAsync(selected!); currentFile=files.FirstOrDefault(); message=null; });
+    private Task SaveNote() => Run("در حال ذخیرهٔ یادداشت…", () => {
+        if(noteLine is not null && (currentFile is null || !AiReviewService.GetAddedLineNumbers(currentFile.Diff).Contains(noteLine.Value))) throw new ArgumentException("خط انتخاب‌شده باید یکی از خطوط افزودهٔ Diff این فایل باشد.");
+        Workspace.SaveNote(selected!,currentFile?.Path ?? "",noteLine,note,author); note=""; noteLine=null; entries=Database.ReviewEntries(selected!); message="یادداشت ذخیره شد."; Navigation.NavigateTo(TaskUrl("notes")); return Task.CompletedTask;
+    });
+    private Task SaveDecision() => Run("در حال ذخیرهٔ جمع‌بندی…", () => { Workspace.SaveDecision(selected!,decision,summary,author); summary=""; entries=Database.ReviewEntries(selected!); message="جمع‌بندی این نسخه ذخیره شد."; Navigation.NavigateTo(TaskUrl("notes")); return Task.CompletedTask; });
+    private Task FullReview() => Run("ثبت در صف پردازش…", () => {
+        liveRunId=Queue.Enqueue(selected!,modelId,profileId,publishToMergeRequest);
+        Navigation.NavigateTo($"/reviews/{liveRunId}/log");
+        return Task.CompletedTask;
+    });
+    private Task Ask() => Run("مدل در حال بررسی پرسش شماست…", async () => { await Workspace.AskAsync(selected!,currentFile!,modelId,question,author); question=""; entries=Database.ReviewEntries(selected!); message="پاسخ AI در گفتگو ذخیره شد."; });
+    private static string EntryTitle(ReviewEntry e) => e.Kind == "AiHelp" ? "کمک AI" : e.Kind == "Note" ? "یادداشت من" : e.Decision switch { "ChangesRequested" => "نیازمند اصلاح", "NeedsDiscussion" => "نیازمند گفتگو", _ => "بررسی شد" };
+}
+
+
+
+
+
+
+
+

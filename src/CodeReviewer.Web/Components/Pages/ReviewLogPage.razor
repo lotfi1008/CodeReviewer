@@ -1,0 +1,12 @@
+@page "/reviews/{RunId:guid}/log"
+@inject CodeReviewer.Web.Services.ReviewJobQueue Queue
+@inject CodeReviewer.Web.Services.SqlDataStore Database
+<PageTitle>لاگ اجرا | بازبین کد</PageTitle>
+<div class="page-heading"><div><div class="eyebrow">بازبینی / رویدادها</div><h1>لاگ اجرا</h1><p>رویدادهای مدل و انتشار، به ترتیب زمان.</p></div><a class="button button-secondary" href="@($"/reviews/{RunId}")">بازگشت به گزارش</a></div>
+<CodeReviewer.Web.Components.ReviewLiveLog RunId="RunId" />
+@if(Database.ReadReviewLog(RunId)?.Status=="Running") { <button class="button button-secondary" @onclick="Cancel" disabled="@requested">@(requested ? "درخواست توقف ثبت شد" : "توقف بازبینی")</button> }
+@code {
+    [Parameter] public Guid RunId {get;set;}
+    private bool requested;
+    private void Cancel() { Queue.Cancel(RunId); requested=true; }
+}

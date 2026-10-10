@@ -1,0 +1,180 @@
+@page "/settings"
+@page "/settings/{Kind}"
+@page "/settings/{Kind}/{Editor}"
+@inject NavigationManager Navigation
+@using CodeReviewer.Web.Services
+@inject ConnectionCatalogStore Store
+@inject SourceControlService Sources
+@inject AiReviewService Reviewer
+@inject SqlDataStore Database
+@inject IConfiguration Configuration
+@inject ModelDiscoveryService Discovery
+
+<PageTitle>@Heading | بازبین کد</PageTitle>
+
+<div class="page-heading"><div><div class="eyebrow">تنظیمات سامانه</div><h1>@Heading</h1><p>@(Editor is null ? "سرویس موردنظر را انتخاب کنید؛ هر اتصال صفحهٔ تنظیمات مستقل دارد." : "اطلاعات این اتصال را تکمیل کنید و ذخیره کنید.")</p></div></div>
+@if (!string.IsNullOrWhiteSpace(message)) { <div class="notice success">@message</div> }
+@if (!string.IsNullOrWhiteSpace(error)) { <div class="notice error">@error</div> }
+
+@if(Kind is null) { <div class="destination-grid"><a class="destination-card" href="/settings/sources"><span>01 / SOURCE CONTROL</span><h2>سورس کنترل</h2><p>مدیریت اتصال GitLab و GitHub</p><b>مشاهدهٔ اتصال‌ها ←</b></a><a class="destination-card" href="/settings/models"><span>02 / AI PROVIDERS</span><h2>مدل‌های هوش مصنوعی</h2><p>endpoint، کلید و مدل‌های قابل استفاده</p><b>مشاهدهٔ مدل‌ها ←</b></a></div> }
+<fieldset class="connection-fieldset" disabled="@busy">
+<div class="connection-list">
+@if(Kind == "sources" && Editor is null) {
+    <section class="panel connection-panel">
+        <div class="panel-heading"><div><h2>سورس کنترل</h2><p>اتصال به مخزن‌ها و دریافت درخواست‌های ادغام</p></div><button class="button button-secondary" @onclick="NewSource">+ اتصال جدید</button></div>
+        @if (catalog.Sources.Count == 0) { <div class="empty-state">هنوز اتصال سورس کنترلی ثبت نشده است.</div> }
+        @foreach (var item in catalog.Sources)
+        {
+            <div class="connection-row" @key="item.Id">
+                <div class="connection-icon">⌘</div><div class="connection-info"><strong>@item.Name</strong><span class="connection-state">@(item.Enabled ? "فعال" : "غیرفعال / در انتظار تکمیل")</span><small>@item.Provider · <bdi>@item.BaseUrl</bdi></small></div>
+                <div class="connection-actions">
+                    @if (catalog.DefaultSourceId == item.Id) { <span class="default-pill">پیش‌فرض</span> }
+                    <button class="text-button" @onclick="() => EditSource(item)">ویرایش</button>
+                </div>
+            </div>
+        }
+    </section>
+
+} @if(Kind == "models" && Editor is null) {
+    <section class="panel connection-panel">
+        <div class="panel-heading"><div><h2>مدل‌های AI</h2><p>چند مدل با پروتکل‌های پشتیبانی‌شده</p></div><button class="button button-secondary" @onclick="NewModel">+ مدل جدید</button></div>
+        @if (catalog.Models.Count == 0) { <div class="empty-state">هنوز مدل هوش مصنوعی ثبت نشده است.</div> }
+        @foreach (var item in catalog.Models)
+        {
+            <div class="connection-row" @key="item.Id">
+                <div class="connection-icon ai-icon">✦</div><div class="connection-info"><strong>@item.Name</strong><span class="connection-state">@(item.Enabled ? "فعال" : "غیرفعال / در انتظار تکمیل")</span><small>@ProviderName(item.Provider) · <bdi>@item.Model</bdi></small></div>
+                <div class="connection-actions">
+                    @if (catalog.DefaultModelId == item.Id) { <span class="default-pill">پیش‌فرض</span> }
+                    <button class="text-button" @onclick="() => EditModel(item)">ویرایش</button>
+                </div>
+            </div>
+        }
+    </section>
+}
+</div>
+
+@if (sourceDraft is not null)
+{
+    <section class="panel editor-panel">
+        <div class="panel-heading"><div><h2>@(editingSource ? "ویرایش اتصال سورس کنترل" : "افزودن سورس کنترل")</h2><p>برای ثبت اولیه بدون توکن، گزینهٔ فعال باشد را خاموش نگه دارید. توکن به‌صورت رمزگذاری‌شده در SQL ذخیره می‌شود.</p></div><button class="icon-button" @onclick="Cancel">×</button></div>
+        <div class="form-grid">
+            <label>نام نمایشی<input @bind="sourceDraft.Name" placeholder="مثلاً گیت‌لب توسعه" /></label>
+            <label>نوع سرویس<select @bind="sourceDraft.Provider"><option value="GitLab">GitLab</option><option value="GitHub">GitHub / Enterprise</option></select></label>
+            <label class="full">نشانی پایه API<input class="ltr-field" @bind="sourceDraft.BaseUrl" placeholder="https://gitlab.example.com یا https://api.github.com" /></label>
+            <label class="full">توکن API<input class="ltr-field" type="password" @bind="sourceDraft.Token" placeholder="@(editingSource ? "برای حفظ توکن قبلی خالی بگذارید" : "توکن را وارد کنید")" autocomplete="new-password" /></label>
+            <label class="check-field"><input type="checkbox" @bind="sourceDraft.Enabled" /> فعال باشد</label>
+        </div>
+        <div class="form-actions"><button class="button button-primary" @onclick="SaveSource">ذخیره اتصال</button><button class="button button-secondary" @onclick="Cancel">انصراف</button></div>
+    </section>
+}
+
+@if (modelDraft is not null)
+{
+    <section class="panel editor-panel">
+        <div class="panel-heading"><div><h2>@(editingModel ? "ویرایش مدل AI" : "افزودن مدل AI")</h2><p>برای هر مدل endpoint، پروتکل و قابلیت پاسخ ساختاریافته را مشخص کنید.</p></div><button class="icon-button" @onclick="Cancel">×</button></div>
+        <div class="form-grid">
+            <label>نام نمایشی<input @bind="modelDraft.Name" placeholder="مثلاً مدل بازبینی داخلی" /></label>
+            <label>نوع سرویس<select @bind="modelDraft.Provider" @bind:after="ResetModels"><option value="OpenAICompatible">OpenAI-compatible</option><option value="AzureOpenAI">Azure OpenAI</option><option value="Ollama">Ollama (OpenAI API)</option></select></label>
+            <label class="full">نشانی endpoint<input class="ltr-field" @bind="modelDraft.Endpoint" @bind:after="ResetModels" placeholder="https://model.example.com/v1" /></label>
+            <label class="full">کلید API<input class="ltr-field" type="password" @bind="modelDraft.ApiKey" @bind:after="ResetModels" placeholder="@(editingModel ? "برای حفظ کلید قبلی خالی بگذارید" : "کلید را وارد کنید")" autocomplete="new-password" /></label>
+            <div class="full model-discovery">
+                <div class="model-discovery-toolbar"><strong>شناسه مدل یا Deployment</strong><button class="button button-secondary" disabled="@(loadingModels || modelDraft.Provider == "AzureOpenAI")" @onclick="LoadModels">@(loadingModels ? "در حال دریافت مدل‌ها…" : "↻ دریافت مدل‌ها از API")</button></div>
+                @if(modelDraft.Provider == "AzureOpenAI") { <p>نام Deployment در Azure را دستی وارد کنید.</p> }
+                else
+                {
+                    <label>انتخاب از مدل‌های سرویس<select class="ltr-field" @bind="modelDraft.Model" disabled="@(availableModels.Count == 0 || manualModel)"><option value="">مدل را انتخاب کنید</option>@if(!string.IsNullOrEmpty(modelDraft.Model) && !availableModels.Contains(modelDraft.Model)) { <option value="@modelDraft.Model">@modelDraft.Model (شناسهٔ فعلی)</option> }@foreach(var id in availableModels) { <option value="@id">@id</option> }</select></label>
+                    <label class="check-field"><input type="checkbox" @bind="manualModel" /> ورود دستی شناسه</label>
+                }
+                @if(manualModel || modelDraft.Provider == "AzureOpenAI") { <label>شناسهٔ دستی<input class="ltr-field" @bind="modelDraft.Model" placeholder="review-model" /></label> }
+                @if(discoveryMessage is not null) { <p role="status">@discoveryMessage</p> }
+                @if(discoveryError is not null) { <div class="notice error" role="alert">@discoveryError</div> }
+            </div>
+            <label class="check-field"><input type="checkbox" @bind="modelDraft.SupportsJsonSchema" /> پشتیبانی از JSON Schema</label>
+            <label class="check-field"><input type="checkbox" @bind="modelDraft.Enabled" /> فعال باشد</label>
+        </div>
+        <div class="form-actions"><button class="button button-primary" @onclick="SaveModel">ذخیره مدل</button><button class="button button-secondary" @onclick="Cancel">انصراف</button></div>
+    </section>
+}
+
+@if(editingSource && sourceDraft is not null) {
+    <div class="report-actions"><button class="button button-secondary" @onclick="()=>TestSource(sourceDraft.Id)">آزمایش اتصال ذخیره‌شده</button></div>
+    <details class="panel"><summary class="panel-heading">مدیریت اتصال</summary><div class="form-actions">@if(sourceDraft.Enabled) { <button class="text-button" @onclick="()=>SetDefaultSource(sourceDraft.Id)">انتخاب به‌عنوان پیش‌فرض</button> }<button class="text-button danger" @onclick="()=>AskRemoveSource(sourceDraft.Id)">حذف اتصال</button></div></details>
+}
+@if(editingModel && modelDraft is not null) {
+    <div class="report-actions"><button class="button button-secondary" @onclick="()=>TestModel(modelDraft.Id)">آزمایش مدل ذخیره‌شده</button></div>
+    <details class="panel"><summary class="panel-heading">مدیریت اتصال</summary><div class="form-actions">@if(modelDraft.Enabled) { <button class="text-button" @onclick="()=>SetDefaultModel(modelDraft.Id)">انتخاب به‌عنوان پیش‌فرض</button> }<button class="text-button danger" @onclick="()=>AskRemoveModel(modelDraft.Id)">حذف مدل</button></div></details>
+}@if (pendingRemoval is not null)
+{
+    <div class="confirm-overlay"><div class="confirm-card"><h2>حذف اتصال؟</h2><p>این اتصال از پنل حذف می‌شود و برای استفاده دوباره باید آن را ثبت کنید.</p><div class="form-actions"><button class="button button-danger" @onclick="ConfirmRemoval">حذف شود</button><button class="button button-secondary" @onclick="() => pendingRemoval = null">انصراف</button></div></div></div>
+}
+
+</fieldset>
+@code {
+    [Parameter] public string? Kind {get;set;}
+    [Parameter] public string? Editor {get;set;}
+    private string Heading => Editor is not null ? (Editor=="new" ? "افزودن " : "ویرایش ")+(Kind=="models" ? "مدل" : "سورس کنترل") : Kind switch { "models"=>"مدل‌های هوش مصنوعی", "sources"=>"سورس کنترل", _=>"اتصال‌ها" };
+    protected override void OnParametersSet()
+    {
+        ResetDraft(); ClearStatus(); Reload();
+        if(Editor=="new") { if(Kind=="models") LoadNewModel(); else LoadNewSource(); }
+        else if(Guid.TryParse(Editor,out var id)) {
+            if(Kind=="sources" && catalog.Sources.FirstOrDefault(x=>x.Id==id) is { } source) LoadSource(source);
+            else if(Kind=="models" && catalog.Models.FirstOrDefault(x=>x.Id==id) is { } model) LoadModel(model);
+            else error="اتصال پیدا نشد.";
+        }
+    }
+    private void Cancel() { ResetDraft(); Navigation.NavigateTo($"/settings/{Kind}"); }
+    private void NewSource()=>Navigation.NavigateTo("/settings/sources/new");
+    private void NewModel()=>Navigation.NavigateTo("/settings/models/new");
+    private void EditSource(SourceConnection item)=>Navigation.NavigateTo($"/settings/sources/{item.Id}");
+    private void EditModel(AiConnection item)=>Navigation.NavigateTo($"/settings/models/{item.Id}");
+    private bool busy;
+    private bool loadingModels,manualModel;
+    private IReadOnlyList<string> availableModels=[];
+    private string? discoveryMessage,discoveryError;
+    private void ResetModels() { availableModels=[]; discoveryMessage=null; discoveryError=null; }
+    private async Task LoadModels()
+    {
+        if(modelDraft is null || loadingModels) return;
+        busy=true; loadingModels=true; discoveryMessage=null; discoveryError=null;
+        try {
+            availableModels=await Discovery.ListAsync(modelDraft,Store.Snapshot().Models.FirstOrDefault(x=>x.Id==modelDraft.Id));
+            manualModel=availableModels.Count==0;
+            discoveryMessage=availableModels.Count==0 ? "سرویس هیچ مدلی برنگرداند؛ شناسه را دستی وارد کنید." : $"{availableModels.Count} مدل دریافت شد. مدل مناسب گفتگو و بازبینی را انتخاب کنید؛ قابلیت هر مدل باید با آزمایش اتصال بررسی شود.";
+        }
+        catch(ArgumentException ex) { discoveryError=ex.Message; manualModel=true; }
+        catch(OperationCanceledException) { discoveryError="مهلت دریافت فهرست تمام شد؛ دوباره تلاش کنید."; }
+        catch(HttpRequestException) { discoveryError="ارتباط با سرویس برقرار نشد؛ نشانی و دسترسی شبکه را بررسی کنید."; }
+        finally { busy=false; loadingModels=false; }
+    }
+    private ConnectionCatalog catalog = new();
+    private SourceConnection? sourceDraft;
+    private AiConnection? modelDraft;
+    private bool editingSource;
+    private bool editingModel;
+    private (string Kind, Guid Id)? pendingRemoval;
+    private string? message;
+    private string? error;
+
+    protected override void OnInitialized() => Reload();
+    private void Reload() => catalog = Store.Snapshot();
+    private static string ProviderName(string kind) => kind switch { "AzureOpenAI" => "Azure OpenAI", "Ollama" => "Ollama", _ => "OpenAI-compatible" };
+    private void ClearStatus() { message = null; error = null; }
+    private void ResetDraft() { sourceDraft = null; modelDraft = null; ResetModels(); manualModel=false; }
+    private void LoadNewSource() { ClearStatus(); ResetDraft(); editingSource = false; sourceDraft = new SourceConnection { BaseUrl = "https://" }; }
+    private void LoadNewModel() { ClearStatus(); ResetDraft(); editingModel = false; modelDraft = new AiConnection(); }
+    private void LoadSource(SourceConnection item) { ClearStatus(); ResetDraft(); editingSource = true; sourceDraft = new SourceConnection { Id = item.Id, Name = item.Name, Provider = item.Provider, BaseUrl = item.BaseUrl, Enabled = item.Enabled }; }
+    private void LoadModel(AiConnection item) { ClearStatus(); ResetDraft(); editingModel = true; modelDraft = new AiConnection { Id = item.Id, Name = item.Name, Provider = item.Provider, Endpoint = item.Endpoint, Model = item.Model, SupportsJsonSchema = item.SupportsJsonSchema, Enabled = item.Enabled }; }
+    private void SaveSource() { try { Store.Upsert(sourceDraft!); Cancel(); Reload(); ClearStatus(); message = "اتصال سورس کنترل ذخیره شد."; } catch (Exception ex) { error = ex.Message; } }
+    private void SaveModel() { try { Store.Upsert(modelDraft!); Cancel(); Reload(); ClearStatus(); message = "مدل AI ذخیره شد."; } catch (Exception ex) { error = ex.Message; } }
+    private void SetDefaultSource(Guid id) { try { Store.SetDefaultSource(id); Reload(); ClearStatus(); message = "سورس کنترل پیش‌فرض تغییر کرد."; } catch (Exception ex) { error = ex.Message; } }
+    private void SetDefaultModel(Guid id) { try { Store.SetDefaultModel(id); Reload(); ClearStatus(); message = "مدل پیش‌فرض تغییر کرد."; } catch (Exception ex) { error = ex.Message; } }
+    private void AskRemoveSource(Guid id) { ClearStatus(); pendingRemoval = ("source", id); }
+    private void AskRemoveModel(Guid id) { ClearStatus(); pendingRemoval = ("model", id); }
+    private void ConfirmRemoval() { if (pendingRemoval is null) return; if (pendingRemoval.Value.Kind == "source") Store.RemoveSource(pendingRemoval.Value.Id); else Store.RemoveModel(pendingRemoval.Value.Id); pendingRemoval = null; Reload(); Cancel(); message = "اتصال حذف شد."; }
+    private async Task TestSource(Guid id) { ClearStatus(); busy = true; try { message = "اتصال برقرار است: " + await Sources.TestAsync(id); Database.RecordCheck(id, true, message); } catch (Exception ex) { error = "آزمایش اتصال ناموفق بود؛ فعال بودن اتصال، توکن و گواهی HTTPS را بررسی کنید. " + ex.GetType().Name; Database.RecordCheck(id, false, error); } finally { busy = false; } }
+    private async Task TestModel(Guid id) { ClearStatus(); busy = true; try { var model = catalog.Models.Single(x => x.Id == id); message = await Reviewer.TestAsync(model); Database.RecordCheck(id, true, message); } catch (Exception ex) { error = $"آزمایش مدل ناموفق بود: {ex.GetType().Name}. نشانی، کلید و قابلیت JSON Schema را بررسی کنید."; Database.RecordCheck(id, false, error); } finally { busy = false; } }
+}
+
+
+

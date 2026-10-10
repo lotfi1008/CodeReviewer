@@ -1,0 +1,10 @@
+@page "/reviews/{RunId:guid}/tests"
+@using CodeReviewer.Web.Services
+@inject SqlDataStore Database
+<PageTitle>تست دستی رگرسیون</PageTitle>
+<div class="page-heading"><h1>سناریوهای تست دستی</h1><a href="@($"/reviews/{RunId}")">گزارش بازبینی</a></div>
+<p>این سناریوها پیشنهاد برای اجرا هستند؛ نتیجهٔ اجرای تست ثبت نشده است.</p>
+@if(run?.Impact is { } impact) {
+@foreach(var test in impact.ManualTests) { <section class="panel"><h2>@test.UiPath</h2><p>@test.Steps</p><p>انتظار: @test.Expected</p><small><bdi>@test.File:@test.Line</bdi></small></section> }
+} else { <p>سناریوی ثبت‌شده‌ای وجود ندارد.</p> }
+@code { [Parameter] public Guid RunId {get;set;} private ReviewRun? run; protected override void OnParametersSet()=>run=Database.History(id:RunId).FirstOrDefault(); }

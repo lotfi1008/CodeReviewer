@@ -1,0 +1,25 @@
+@using CodeReviewer.Web.Services
+<div class="code-viewer @(wide ? "code-expanded" : "")">
+    <div class="code-toolbar"><div class="code-file"><bdi title="@File.Path">@File.Path</bdi><span><i class="added-total">+@rows.Count(x=>x.Kind=="added")</i> <i class="removed-total">−@rows.Count(x=>x.Kind=="removed")</i></span></div><div class="code-actions"><label><input type="checkbox" @bind="wrap" /> شکستن خطوط بلند</label><label>اندازهٔ متن <select @bind="fontSize"><option value="12">کوچک</option><option value="14">معمولی</option><option value="16">درشت</option></select></label><button class="button button-secondary" @onclick="()=>wide=!wide">@(wide ? "بازگشت" : "نمای بزرگ")</button></div></div>
+    <div class="code-legend"><span>قدیم / جدید</span><span>برای یادداشت، روی شمارهٔ خط افزوده کلیک کنید.</span></div>
+    @if(rows.Count==0) { <div class="empty-state">تغییر متنی برای این فایل در دسترس نیست.</div> }
+    else {
+    <div class="code-viewport @(wrap ? "code-wrap" : "")" style="--code-font:@(fontSize)px" tabindex="0" aria-label="تغییرات کد">
+    <table class="code-table" dir="ltr"><colgroup><col class="number-column"/><col class="number-column"/><col class="sign-column"/><col/></colgroup><thead><tr><th>Old</th><th>New</th><th></th><th>Code</th></tr></thead><tbody>
+    @foreach(var row in rows) {
+        <tr class="code-@row.Kind @(selectedLine is not null && row.NewLine == selectedLine ? "code-selected" : "")"><td class="code-number">@row.OldLine</td><td class="code-number">@if(row.Kind=="added") { <button title="یادداشت روی خط @row.NewLine" @onclick="()=>Select(row.NewLine!.Value)">@row.NewLine</button> } else { @row.NewLine }</td><td class="code-sign">@(row.Kind=="added" ? "+" : row.Kind=="removed" ? "−" : "")</td><td class="code-content"><pre dir="ltr">@row.Text</pre></td></tr>
+    }
+    </tbody></table></div>
+    }
+</div>
+@code {
+    [Parameter,EditorRequired] public ChangedFile File {get;set;}=null!;
+    [Parameter] public EventCallback<int> OnLineSelected {get;set;}
+    private IReadOnlyList<DiffLine> rows=[];
+    private ChangedFile? previous;
+    private bool wrap=true,wide;
+    private int fontSize=14;
+    private int? selectedLine;
+    protected override void OnParametersSet() { if(previous != File) { rows=DiffDocument.Parse(File.Diff); previous=File; selectedLine=null; } }
+    private async Task Select(int line) { selectedLine=line; await OnLineSelected.InvokeAsync(line); }
+}

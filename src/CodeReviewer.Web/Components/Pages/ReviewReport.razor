@@ -1,0 +1,17 @@
+@page "/reviews/{RunId:guid}"
+@using CodeReviewer.Web.Services
+@inject SqlDataStore Database
+<PageTitle>گزارش بازبینی | بازبین کد</PageTitle>
+<div class="page-heading"><div><div class="eyebrow">بازبینی / گزارش</div><h1>نتیجهٔ بازبینی</h1><p>یافته‌ها، پیامد تغییرات و مسیر پیشنهادی برای اعتبارسنجی.</p></div><a class="button button-secondary" href="/history">سوابق</a></div>
+@if(run is null) { <p>گزارش پیدا نشد.</p> }
+else {
+<div class="workspace-context"><strong>@run.MergeRequest.Title</strong><a href="@run.MergeRequest.WebUrl" target="_blank" rel="noopener">مشاهدهٔ MR</a></div>
+<div class="report-actions"><a class="button button-secondary" href="@($"/reviews/{RunId}/log")">لاگ و عیب‌یابی</a><a class="button button-secondary" href="@($"/reviews/{RunId}/publish")">انتشار</a><a class="button button-secondary" href="@($"/request/review?source={run.MergeRequest.ConnectionId}&repo={Uri.EscapeDataString(run.MergeRequest.RepositoryId)}&number={run.MergeRequest.Number}")">بازبینی تازه</a></div>
+@if(!ReviewCommentFormatter.HasUsefulContent(run) && run.Status=="Completed") { <div class="notice">این اجرای قدیمی تحلیل اثر و شواهد ساختاریافته ندارد؛ برای گزارش جدید بازبینی تازه لازم است.</div> }
+else { <ReviewSummary Run="run" /> }
+}
+@code {
+[Parameter] public Guid RunId {get;set;}
+private ReviewRun? run;
+protected override void OnParametersSet()=>run=Database.History(id:RunId).FirstOrDefault();
+}

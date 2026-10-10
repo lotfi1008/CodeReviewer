@@ -1,0 +1,67 @@
+@page "/profiles"
+@page "/profiles/{Editor}"
+@inject NavigationManager Navigation
+@using CodeReviewer.Web.Services
+@inject SqlDataStore Database
+@inject ConnectionCatalogStore Catalog
+<PageTitle>پروفایل‌های بازبینی</PageTitle>
+<div class="page-heading"><div><div class="eyebrow">روش بررسی را شما تعیین می‌کنید</div><h1>@(Editor is null ? "پروفایل‌های بازبینی" : "تنظیم روش بازبینی")</h1><p>مدل و دستورالعمل هر نوع بررسی را یک بار تنظیم کنید و هر بار انتخاب کنید.</p></div>@if(Editor is null) { <button class="button button-primary" @onclick="New">+ پروفایل جدید</button> } else { <a class="button button-secondary" href="/profiles">بازگشت به پروفایل‌ها</a> }</div>
+@if(message is not null) { <div class="notice success" role="status">@message</div> }
+@if(error is not null) { <div class="notice error" role="alert">@error</div> }
+@if(Editor is null) {
+<div class="profile-cards">@foreach(var p in profiles) {
+    <section class="panel profile-card"><span class="profile-mark">@(p.Strictness == "Light" ? "⚡" : p.Strictness == "Strict" ? "◎" : "◈")</span><h2>@p.Name</h2><p>@Strictness(p.Strictness) · فایل‌های مرتبط</p><p>@string.Join("، ",p.Domains.Select(d=>ReviewDomain.Available.GetValueOrDefault(d.Key,d.Key)))</p><p>حداقل اطمینان @p.MinimumConfidence.ToString("P0") · @p.TimeoutSeconds ثانیه</p><div class="form-actions"><button class="button button-secondary" @onclick="() => Edit(p,false)">ویرایش</button><button class="text-button" @onclick="() => Edit(p,true)">ساخت نسخهٔ جدید</button></div></section>
+}</div>
+}
+@if(draft is not null) {
+<section class="panel"><div class="panel-heading"><h2>تنظیمات @draft.Name</h2><button class="icon-button" aria-label="بستن ویرایشگر" @onclick='()=>Navigation.NavigateTo("/profiles")'>×</button></div>
+<div class="review-form profile-form">
+<label>نام پروفایل<input @bind="draft.Name" maxlength="100" /></label>
+<label>مدل پیشنهادی<select @bind="draft.ModelId"><option value="">انتخاب هنگام اجرا</option>@foreach(var m in models) { <option value="@m.Id">@m.Name · @m.Model</option> }</select></label>
+<label>میزان سخت‌گیری<select @bind="draft.Strictness"><option value="Light">سبک؛ مشکلات واضح و مهم</option><option value="Balanced">متعادل؛ مشکلات کاربردی</option><option value="Strict">سخت‌گیرانه؛ بررسی حالت‌های مرزی</option></select></label>
+<label class="check-field"><input type="checkbox" @bind="draft.ReviewDocumentation" />تحلیل مستقل مستندات</label><label class="check-field"><input type="checkbox" @bind="draft.RouteDomains" />ارسال فقط به حوزه‌های مرتبط</label><section class="full domain-settings"><h3>حوزه‌های بازبینی</h3><p>چند حوزه انتخاب کنید. حوزه‌هایی که مدل یکسان دارند با هم بررسی می‌شوند.</p>
+<div class="domain-choices">@foreach(var domain in ReviewDomain.Available) { <label class="check-field"><input type="checkbox" checked="@draft.Domains.Any(d=>d.Key==domain.Key)" @onchange="e=>ToggleDomain(domain.Key,e.Value is true)" />@domain.Value</label> }</div>
+@foreach(var domain in draft.Domains) { <details class="advanced-settings"><summary>@ReviewDomain.Available[domain.Key] · مدل و دستور اختصاصی</summary><div class="review-form"><label>مدل حوزه<select @bind="domain.ModelId"><option value="">مدل انتخاب‌شده هنگام اجرا</option>@foreach(var model in models) { <option value="@model.Id">@model.Name · @model.Model</option> }</select></label><label>دستور تکمیلی این حوزه<textarea @bind="domain.Instructions" rows="3" maxlength="8000"></textarea></label></div></details> }
+@if(draft.Domains.Any(d=>d.Key=="business")) { <label>قواعد کسب‌وکار و معیارهای پذیرش<textarea @bind="draft.BusinessRules" rows="7" maxlength="30000" placeholder="رفتار مورد انتظار، محدودیت‌های دامنه و سناریوهای پذیرش را وارد کنید. مدل بر اساس این قواعد بررسی می‌کند."></textarea></label> }
+</section>
+<label class="full">پرامپت شما<textarea rows="6" maxlength="8000" @bind="draft.Prompt" placeholder="مثلاً فقط مشکلات امنیتی و خطاهای مهم را بررسی کن؛ از پیشنهاد تغییر نام متغیرها صرف‌نظر کن."></textarea></label>
+<details class="full advanced-settings"><summary>تنظیمات پیشرفته: معیار انتشار و محدودیت‌ها</summary><div class="profile-form"><label>حداقل شدت یافته<select @bind="draft.MinimumSeverity"><option value="info">اطلاعاتی</option><option value="low">کم</option><option value="medium">متوسط</option><option value="high">زیاد</option><option value="critical">بحرانی</option></select></label>
+<label>حداقل شدت برای وضعیت «نیازمند اصلاح»<select @bind="draft.BlockingSeverity"><option value="info">اطلاع</option><option value="low">کم</option><option value="medium">متوسط</option><option value="high">زیاد</option><option value="critical">بحرانی</option></select><small>پیشنهادهای پایین‌تر کامنت می‌شوند ولی Check را ناموفق نمی‌کنند.</small></label><label>حداقل اطمینان (۰٫۵ تا ۱)<input type="number" min="0.5" max="1" step="0.05" @bind="draft.MinimumConfidence" /></label>
+
+<label>اندازهٔ هر بخش از Diff (کاراکتر)<input type="number" min="1000" max="50000" step="1000" @bind="draft.MaxDiffCharacters" /></label>
+<label>مهلت کل اجرا (ثانیه)<input type="number" min="30" max="86400" @bind="draft.TimeoutSeconds" /></label>
+<label>مهلت پاسخ مدل برای هر بخش (ثانیه)<input type="number" min="5" max="600" @bind="draft.ModelTimeoutSeconds" /></label>
+<label>تعداد فایل‌های هم‌زمان<input type="number" min="1" max="4" @bind="draft.ConcurrentFiles" /></label><label>سقف توکن خروجی هر بخش<input type="number" min="256" max="8192" step="256" @bind="draft.MaxOutputTokens" /><small>در مدل‌های استدلالی ممکن است بخشی از این سقف قبل از پاسخ نهایی مصرف شود.</small></label>
+</div></details>
+<p class="full">سرعت واقعی به مدل و حجم تغییرات بستگی دارد. فایل‌های اجرایی مرتبط بررسی می‌شوند؛ مستندات، فایل تولیدشده و تغییر صرفاً فاصله طبق تنظیمات کنار گذاشته می‌شوند. بخش‌بندی چیزی از ادامهٔ Diff فایل منتخب حذف نمی‌کند. مدل پیشنهادی را هنگام اجرا می‌توانید عوض کنید.</p>
+<button class="button button-primary" @onclick="Save">ذخیرهٔ پروفایل</button>
+</div></section>
+}
+@code {
+    [Parameter] public string? Editor {get;set;}
+    [SupplyParameterFromQuery] public bool Copy {get;set;}
+    private void ToggleDomain(string key,bool enabled) { if(draft is null) return; if(enabled && !draft.Domains.Any(d=>d.Key==key)) draft.Domains.Add(new(){Key=key}); if(!enabled) draft.Domains.RemoveAll(d=>d.Key==key); }
+    private void New()=>Navigation.NavigateTo("/profiles/new");
+    private void Edit(ReviewProfile p,bool copy)=>Navigation.NavigateTo($"/profiles/{p.Id}?copy={copy.ToString().ToLowerInvariant()}");
+    protected override void OnParametersSet() {
+        draft=null;
+        if(Editor=="new") LoadNew();
+        else if(Guid.TryParse(Editor,out var id) && profiles.FirstOrDefault(p=>p.Id==id) is { } profile) LoadEdit(profile,Copy);
+    }
+    private IReadOnlyList<ReviewProfile> profiles=[];
+    private IReadOnlyList<AiConnection> models=[];
+    private ReviewProfile? draft;
+    private string? error,message;
+    protected override void OnInitialized() { profiles=Database.Profiles(); models=Catalog.Snapshot().Models.Where(x=>x.Enabled).ToArray(); }
+    private void LoadNew() { draft=new(){Name="پروفایل جدید"}; error=null; message=null; }
+    private void LoadEdit(ReviewProfile p,bool copy) { draft=System.Text.Json.JsonSerializer.Deserialize<ReviewProfile>(System.Text.Json.JsonSerializer.Serialize(p)); if(copy) { draft!.Id=Guid.NewGuid(); draft.Name += " ـ نسخهٔ جدید"; } error=null; message=null; }
+    private void Save() { try { Database.SaveProfile(draft!); profiles=Database.Profiles(); draft=null; error=null; Navigation.NavigateTo("/profiles"); } catch(ArgumentException ex) { error=ex.Message; } }
+    private static string Strictness(string s)=> s switch { "Light"=>"سبک", "Strict"=>"سخت‌گیرانه", _=>"متعادل" };
+}
+
+
+
+
+
+
+

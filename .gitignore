@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+.vs/
+*.user
+.env
+.env.*
+phase0-results*.json
+artifacts/

@@ -1,0 +1,24 @@
+@page "/project-context"
+@using CodeReviewer.Web.Services
+@using System.Text.Json
+@inject ProjectContextStore Contexts
+@inject SourceControlService Sources
+@inject ConnectionCatalogStore Catalog
+<PageTitle>نقشهٔ مخزن</PageTitle>
+<div class="page-heading"><h1>نقشهٔ قابلیت‌های مخزن</h1></div>
+<p>قابلیت‌ها، مسیرهای کد، مسیر UI و رابطهٔ قابلیت‌ها را مشخص کنید. این اطلاعات فقط برای مخزن انتخاب‌شده در SQL ذخیره می‌شود. رابطه‌ها اثر احتمالی محسوب می‌شوند.</p>
+@if(message is not null) { <div class="notice" role="status">@message</div> }
+<section class="panel review-form">
+<label>اتصال<select @bind="source" @bind:after="LoadRepos"><option value="@Guid.Empty">انتخاب کنید</option>@foreach(var c in Catalog.Snapshot().Sources.Where(x=>x.Enabled)) { <option value="@c.Id">@c.Name</option> }</select></label>
+<label>مخزن<select @bind="repo" @bind:after="Load"><option value="">انتخاب کنید</option>@foreach(var r in repos) { <option value="@r.Id">@r.Path</option> }</select></label>
+<label class="full">نقشهٔ JSON<textarea dir="ltr" rows="22" @bind="json" maxlength="24000"></textarea></label>
+<button class="button button-primary" disabled="@(string.IsNullOrEmpty(repo))" @onclick="Save">ذخیرهٔ نقشه</button>
+<details class="full"><summary>راهنمای ساختار</summary><p>Name: نام برنامه؛ Purpose: هدف؛ Architecture: لایه‌ها؛ Technologies: فناوری‌ها؛ Boundaries: مرزها. هر Feature نام، PathPrefixes نسبی و دقیق (مثلاً src/Orders/)، UiPath واقعی، RelatedFeatures و Scenarios شامل Steps و Expected دارد. Critical را فقط برای مسیرهای حساس فعال کنید. این نگاشت، جای تحلیل فراخوانی کل برنامه را نمی‌گیرد.</p><p>مثال ساختار یک قابلیت: {"Name":"نام قابلیت","PathPrefixes":["src/Feature/"],"UiPath":"/مسیر-واقعی","Critical":false,"RelatedFeatures":[],"Scenarios":[{"Steps":"اقدام قابل اجرا","Expected":"نتیجه مورد انتظار"}]}</p></details>
+</section>
+@code {
+Guid source; string repo="",json=JsonSerializer.Serialize(new ProjectContext(),new JsonSerializerOptions {WriteIndented=true}); string? message;
+IReadOnlyList<RepositoryItem> repos=[];
+async Task LoadRepos() { repo=""; repos=[]; try { if(source!=Guid.Empty) repos=await Sources.GetRepositoriesAsync(source); } catch { message="دریافت مخزن‌ها ناموفق بود؛ اتصال را بررسی کنید."; } }
+void Load() { if(repo.Length>0) json=JsonSerializer.Serialize(Contexts.Read(source,repo),new JsonSerializerOptions {WriteIndented=true}); message=null; }
+void Save() { try { var value=JsonSerializer.Deserialize<ProjectContext>(json,new JsonSerializerOptions {PropertyNameCaseInsensitive=true}) ?? throw new ArgumentException("نقشه خالی است."); Contexts.Save(source,repo,value); message="نقشهٔ مخزن ذخیره شد."; } catch(Exception ex) when(ex is JsonException or ArgumentException or NullReferenceException) { message="ساختار نقشه معتبر نیست؛ نام، مسیرها و رابطه‌ها را بررسی کنید."; } }
+}

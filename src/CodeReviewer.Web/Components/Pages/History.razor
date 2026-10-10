@@ -1,0 +1,32 @@
+@page "/history"
+@using CodeReviewer.Web.Services
+@inject SqlDataStore Database
+@inject NavigationManager Navigation
+<PageTitle>سوابق بازبینی | بازبین هوشمند کد</PageTitle>
+<div class="page-heading"><div><div class="eyebrow">گزارش‌های ذخیره‌شده</div><h1>سوابق بازبینی</h1><p>نتیجه، مدل و وضعیت هر اجرا در SQL Server نگهداری می‌شود.</p></div><button class="button button-secondary" @onclick="Reload">↻ به‌روزرسانی</button></div>
+<section class="panel">
+    <div class="panel-heading"><h2>تاریخچهٔ اجرا</h2><label>وضعیت <select @bind="filter" @bind:after="Reload"><option value="">همه</option><option value="Completed">تکمیل‌شده</option><option value="Incomplete">بازبینی ناقص</option><option value="Failed">ناموفق</option><option value="Interrupted">قطع‌شده</option><option value="Running">در حال اجرا</option><option value="Cancelled">لغوشده</option><option value="TimedOut">پایان مهلت</option></select></label></div>
+    @if (runs.Count == 0) { <div class="empty-state"><div class="empty-symbol">◎</div><h3>هنوز بررسی‌ای اجرا نشده است</h3><p>پس از تکمیل اتصال GitLab و مدل، اولین بررسی را از داشبورد اجرا کنید.</p><a class="button button-primary" href="/settings">تکمیل اتصال‌ها</a></div> }
+    @foreach (var run in runs)
+    {
+        <div class="mr-row"><span class="mr-icon">↗</span><div class="mr-main"><strong>@run.MergeRequest.Title</strong><div class="mr-meta">درخواست @run.MergeRequest.Number · @run.StartedUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm") · @run.Model</div></div><span class="default-pill">@Status(run.Status)</span><a class="button button-secondary" href="@($"/reviews/{run.Id}")">مشاهدهٔ گزارش ←</a></div>
+    }
+</section>
+<div class="pagination"><button class="button button-secondary" disabled="@(page==1)" @onclick="Previous">قبلی</button><span>صفحهٔ @(page)</span><button class="button button-secondary" disabled="@(page*15>=total)" @onclick="Next">بعدی</button></div>
+@code {
+    [SupplyParameterFromQuery(Name="run")] public Guid? RequestedRun {get;set;}
+    private IReadOnlyList<ReviewRun> runs=[];
+    private string filter="";
+    private int page=1;
+    protected override void OnInitialized()=>Reload();
+    protected override void OnParametersSet() { if(RequestedRun is Guid id) Navigation.NavigateTo($"/reviews/{id}",replace:true); }
+    private int total;
+    private void Load() { total=Database.ReviewCount(filter); runs=Database.History(skip:(page-1)*15,take:15,status:filter,includeDetails:false); }
+    private void Reload() { page=1; Load(); }
+    private void Previous() { page--; Load(); }
+    private void Next() { page++; Load(); }
+    private static string Status(string s)=>s switch { "Incomplete"=>"بازبینی ناقص", "Completed"=>"تکمیل‌شده", "Running"=>"در حال اجرا", "Failed"=>"ناموفق", "TimedOut"=>"پایان مهلت", "Cancelled"=>"لغوشده", _=>"قطع‌شده" };
+}
+
+
+

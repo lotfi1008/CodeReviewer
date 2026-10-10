@@ -1,0 +1,76 @@
+@using CodeReviewer.Web.Services
+@implements IDisposable
+@inject SqlDataStore Database
+@if (log is not null)
+{
+    var last=log.Events.LastOrDefault();
+    <section class="review-console" aria-label="کنسول زنده بازبینی">
+        <header class="console-header"><div class="console-title"><span class="console-light @(log.Status == "Running" ? "running" : log.Status == "Completed" ? "done" : "stopped")"></span><strong>@Status(log.Status)</strong></div><a href="@($"/reviews/{RunId}")" class="console-report">گزارش اجرا ↗</a></header>
+        <div class="console-metrics"><span><b>@(last?.CompletedFiles ?? 0)</b> / @(last?.TotalFiles ?? 0) فایل</span><span>@Elapsed</span><span class="console-run" title="@RunId">RUN <bdi>@RunId?.ToString()[..8]</bdi></span><span class="console-poll">@(log.Status == "Running" ? "● زنده · هر ۲ ثانیه" : "اجرای پایان‌یافته")</span></div>
+        @if(last?.TotalFiles > 0) { <progress class="console-progress" value="@last.CompletedFiles" max="@last.TotalFiles" aria-label="فایل‌های تکمیل‌شده"></progress> }
+        <div class="console-current" role="status"><span class="console-prompt">›</span><span>@last?.Message</span></div>
+        @if(!string.IsNullOrEmpty(last?.File)) { <div class="console-file"><span>FILE</span><bdi title="@last.File">@last.File</bdi></div> }
+        <div class="console-toolbar">
+            <label class="console-search"><span>جست‌وجو</span><input @bind="search" @bind:event="oninput" placeholder="پیام یا مسیر فایل…" /></label>
+            <label>سطح <select @bind="level"><option value="">همه</option><option value="Error">خطا</option><option value="Warning">هشدار</option><option value="Info">اطلاعات</option></select></label>
+            <label class="console-check"><input type="checkbox" @bind="showWaiting" /> پیام‌های انتظار</label>
+            <button @onclick="TogglePause" aria-pressed="@paused">@(paused ? "▶ ادامه نمایش" : "Ⅱ توقف نمایش")</button>
+            <button @onclick="()=>newestFirst=!newestFirst">@(newestFirst ? "↓ جدیدترین ابتدا" : "↑ قدیمی‌ترین ابتدا")</button>
+        </div>
+        @if(paused) { <div class="console-paused">نمایش لاگ ثابت است؛ پردازش بازبینی ادامه دارد.</div> }
+        <div class="console-output" role="log" aria-live="off" tabindex="0" aria-label="رویدادهای اجرا؛ جدیدترین رویداد طبق ترتیب انتخابی">
+            @foreach(var item in VisibleEvents)
+            {
+                <div class="console-line @item.Level.ToLowerInvariant()" @key="item.Id"><time>@item.TimeUtc.ToLocalTime().ToString("HH:mm:ss")</time><span class="console-level">@item.Level.ToUpperInvariant()</span><div class="console-message"><span>@item.Message</span>@if(!string.IsNullOrEmpty(item.File) && !IsWaiting(item)) { <bdi class="console-line-file" title="@item.File">@item.File.Split('/').Last()</bdi> }</div></div>
+            }
+            @if(!VisibleEvents.Any()) { <div class="console-empty">@(log.Events.Count == 0 ? "هنوز رویدادی برای این اجرا ثبت نشده است." : "رویدادی مطابق فیلتر انتخابی نیست.")</div> }
+        </div>
+        <footer class="console-footer"><span>@VisibleEvents.Count() رویداد نمایشی / @log.Events.Count رویداد اخیر</span><span>SQL Server · لاگ ذخیره می‌شود</span></footer>
+    </section>
+}
+@if(error is not null) { <div class="notice error">@error</div> }
+@code {
+    [Parameter] public Guid? RunId {get;set;}
+    private Guid? previous;
+    private string search="",level="";
+    private bool paused,showWaiting,newestFirst=true;
+    private IReadOnlyList<ReviewEvent> frozen=[];
+    private static bool IsWaiting(ReviewEvent item) => item.Message.StartsWith("هنوز منتظر پاسخ مدل") || item.Message.StartsWith("در انتظار پاسخ؛");
+    private IEnumerable<ReviewEvent> VisibleEvents {
+        get {
+            IEnumerable<ReviewEvent> events=paused ? frozen : log?.Events ?? [];
+            events=events.Where(x=>(level.Length==0 || x.Level==level) && (showWaiting || !IsWaiting(x)) && (x.Message+" "+x.File).Contains(search,StringComparison.OrdinalIgnoreCase));
+            return newestFirst ? events.OrderByDescending(x=>x.Id) : events.OrderBy(x=>x.Id);
+        }
+    }
+    private void TogglePause() { if(!paused) frozen=log?.Events.ToArray() ?? []; paused=!paused; }
+    private ReviewLog? log;
+    private string? error;
+    private CancellationTokenSource? polling;
+    private string Elapsed => log is null ? "" : $"زمان سپری‌شده: {Math.Max(0,((log.FinishedUtc ?? DateTime.UtcNow)-log.StartedUtc).TotalSeconds):F0} ثانیه";
+    protected override void OnParametersSet()
+    {
+        if(previous == RunId) return;
+        polling?.Cancel(); polling?.Dispose(); previous=RunId; log=null; error=null; paused=false; frozen=[];
+        if(RunId is not Guid id) return;
+        Refresh(id);
+        if(ShouldPoll) { polling=new(); _=Poll(id,polling.Token); }
+    }
+    private void Refresh(Guid id) { try { log=Database.ReadReviewLog(id); error=null; } catch { error="دریافت لاگ موقتاً ناموفق بود؛ اتصال SQL Server را بررسی کنید."; } }
+    private async Task Poll(Guid id,CancellationToken token)
+    {
+        try {
+            using var timer=new PeriodicTimer(TimeSpan.FromSeconds(2));
+            while(await timer.WaitForNextTickAsync(token)) {
+                await InvokeAsync(()=> { if(token.IsCancellationRequested) return; Refresh(id); StateHasChanged(); });
+                if(!ShouldPoll) break;
+            }
+        } catch(OperationCanceledException) { }
+        catch(ObjectDisposedException) { }
+    }
+    private bool ShouldPoll => log?.Status == "Running" || (log?.Status == "Completed" && log.FinishedUtc > DateTime.UtcNow.AddMinutes(-2) && !log.Events.Any(e=>e.Message.StartsWith("کامنت نتیجه منتشر شد:") || e.Message.StartsWith("انتشار کامل نشد؛") || e.Message.StartsWith("کامنت منتشر نشد:")));
+    private static string Status(string s)=>s switch { "Running"=>"بازبینی در حال اجراست", "Incomplete"=>"بازبینی ناقص", "Completed"=>"بازبینی تکمیل شد", "Failed"=>"بازبینی ناموفق", "Cancelled"=>"بازبینی لغو شد", "TimedOut"=>"پاسخ مدل به موقع نرسید؛ اجرا متوقف شد", "Interrupted"=>"اجرا با توقف برنامه قطع شد", _=>s };
+    public void Dispose() { polling?.Cancel(); polling?.Dispose(); }
+}
+
+

@@ -1,0 +1,77 @@
+{
+  "Name": "DMP",
+  "Purpose": "Dashboard and Management Portal؛ مدیریت کاربران، مجوزها، داشبورد و گزارش",
+  "Architecture": "Backend: Domain، Contracts، ApplicationService مبتنی بر Zamin CQRS، Infrastructure و Endpoints. MVC و BlazorServer هر دو در DMP.sln حضور دارند.",
+  "Technologies": "C#، ASP.NET Core، EF Core، Dapper، SQL Server، Quartz، Power BI/SSRS، Form.io؛ پروژه‌های فعال طبق DMP.sln",
+  "Boundaries": "مجوز منبع و هویت معتبر در بک‌اند؛ SQL و یکپارچه‌سازی بیرونی در Infrastructure. نقشه نمونه کامل نیست. قواعد TARGET اسناد DMP الزام فعلی محسوب نمی‌شوند.",
+  "Features": [
+    {
+      "Name": "حساب و مجوزها",
+      "PathPrefixes": [
+        "src/Backend/01. Core/DMP.Backend.Core.Domain/Accounts/",
+        "src/Backend/01. Core/DMP.Backend.ApplicationService/Accounts/",
+        "src/Backend/01. Core/DMP.Backend.Core.Domain/Users/",
+        "src/Backend/01. Core/DMP.Backend.ApplicationService/Users/",
+        "src/Backend/01. Core/DMP.Backend.Core.Domain/Roles/",
+        "src/Backend/01. Core/DMP.Backend.ApplicationService/Roles/",
+        "src/Backend/01. Core/DMP.Backend.Core.Domain/RolePermissions/",
+        "src/Backend/01. Core/DMP.Backend.ApplicationService/RolePermissions/",
+        "src/Backend/01. Core/DMP.Backend.Core.Domain/RlsPermissions/",
+        "src/Backend/01. Core/DMP.Backend.ApplicationService/RlsPermissions/",
+        "src/Backend/01. Core/DMP.Backend.Core.Domain/RlsPatterns/",
+        "src/Backend/01. Core/DMP.Backend.ApplicationService/RlsPatterns/"
+      ],
+      "UiPath": "",
+      "Critical": true,
+      "RelatedFeatures": [],
+      "Scenarios": [
+        {
+          "Expected": "کاربر فاقد مجوز به داده منبع دسترسی نداشته باشد؛ تغییر شناسه کاربر در ورودی، مجوز ایجاد نکند.",
+          "Steps": "با دو کاربر دارای مجوز متفاوت، دسترسی به یک منبع محافظت‌شده را از API بررسی کنید."
+        }
+      ]
+    },
+    {
+      "Name": "اجرای Grid",
+      "PathPrefixes": [
+        "src/Backend/01. Core/DMP.Backend.Core.Domain/GridReports/",
+        "src/Backend/01. Core/DMP.Backend.ApplicationService/GridReports/"
+      ],
+      "UiPath": "",
+      "Critical": true,
+      "RelatedFeatures": [
+        "حساب و مجوزها"
+      ],
+      "Scenarios": [
+        {
+          "Expected": "مقدار به‌عنوان داده پارامتر پردازش شود و معنای query تغییر نکند؛ محدودیت خروجی و زمان حفظ شود.",
+          "Steps": "گزارش Grid مجاز را با مقدار معتبر و سپس مقدار شامل نویسه‌های SQL اجرا کنید."
+        }
+      ]
+    },
+    {
+      "Name": "داشبورد و Power BI",
+      "PathPrefixes": [
+        "src/Backend/01. Core/DMP.Backend.Core.Domain/Dashboards/",
+        "src/Backend/01. Core/DMP.Backend.ApplicationService/Dashboards/",
+        "src/Backend/01. Core/DMP.Backend.Core.Domain/PbiReportServers/",
+        "src/Backend/01. Core/DMP.Backend.ApplicationService/PbiReportServers/",
+        "src/Backend/01. Core/DMP.Backend.Core.Domain/Reports/",
+        "src/Backend/01. Core/DMP.Backend.ApplicationService/Reports/",
+        "src/Backend/03. Endpoints/DMP.Backend.Endpoints.PbiApi/",
+        "src/Backend/02. Infra/ReportServer/DMP.Backend.Infra.ReportServer.WebService/"
+      ],
+      "UiPath": "",
+      "Critical": true,
+      "RelatedFeatures": [
+        "حساب و مجوزها"
+      ],
+      "Scenarios": [
+        {
+          "Expected": "فقط پس از مجوز همان منبع لینک تولید شود و URL دلخواه مرورگر منبع محافظت‌شده را تعیین نکند.",
+          "Steps": "با کاربر مجاز و غیرمجاز درخواست viewer یک گزارش محافظت‌شده را ارسال کنید؛ URL مقصد دلخواه نیز امتحان شود."
+        }
+      ]
+    }
+  ]
+}

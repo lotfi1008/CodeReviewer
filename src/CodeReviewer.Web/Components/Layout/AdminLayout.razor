@@ -1,0 +1,23 @@
+@inherits LayoutComponentBase
+<div class="app-shell">
+    <aside class="sidebar">
+        <a class="brand" href="/"><span class="brand-mark">cr<span>.</span></span><span>بازبین کد<small>فضای تصمیم‌گیری تیم توسعه</small></span></a>
+        <div class="sidebar-label">بازبینی</div>
+        <NavLink class="nav-item" href="/" Match="NavLinkMatch.All"><span class="nav-icon">⌂</span> خانه</NavLink>
+        <NavLink class="nav-item" href="/requests"><span class="nav-icon">⑂</span> درخواست‌ها</NavLink>
+        <NavLink class="nav-item" href="/history"><span class="nav-icon">◷</span> سوابق بازبینی</NavLink>
+        <div class="sidebar-label navigation-group">پیکربندی</div>
+        <NavLink class="nav-item" href="/project-context"><span class="nav-icon">⌘</span> نقشهٔ مخزن</NavLink>
+        <NavLink class="nav-item" href="/profiles"><span class="nav-icon">≋</span> پروفایل‌های بازبینی</NavLink>
+        <NavLink class="nav-item" href="/settings/sources"><span class="nav-icon">⌘</span> سورس کنترل</NavLink>
+        <NavLink class="nav-item" href="/settings/models"><span class="nav-icon">✧</span> مدل‌های هوش مصنوعی</NavLink>
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-footer"><span class="footer-mark">CR</span><div>بازبینی با قضاوت شما<small>هوش مصنوعی در کنار تیم</small></div></div>
+    </aside>
+    <div class="app-main">
+        <header class="topbar"><a href="/">فضای کار <span class="topbar-divider">/</span> بازبین کد</a><a href="/settings" class="topbar-account"><span class="account-avatar">ت</span> تنظیمات فضای کار</a></header>
+        <main class="page" id="main-content">@Body</main>
+    </div>
+</div>
+<div id="blazor-error-ui" data-nosnippet>ارتباط با برنامه دچار خطا شد. <a href="." class="reload">بارگذاری دوباره</a><span class="dismiss">×</span></div>
+

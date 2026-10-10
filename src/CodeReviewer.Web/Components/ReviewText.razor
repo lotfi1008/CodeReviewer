@@ -1,0 +1,10 @@
+@foreach (var part in parts.Select((value, index) => (Value: value, Index: index)))
+{
+    if (part.Index % 2 == 1 && part.Index < parts.Length - 1) { <code class="report-inline-code" dir="ltr">@part.Value</code> }
+    else { @part.Value }
+}
+@code {
+    [Parameter] public string Text { get; set; } = "";
+    private string[] parts = [];
+    protected override void OnParametersSet() => parts = Text.Split('`');
+}

@@ -1,0 +1,37 @@
+schema: spec-driven
+
+context: |
+  Language: Persian
+  All artifacts must be written in Persian.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+  CodeReviewer is a Persian RTL Blazor Server application on .NET 10 with SQL Server.
+  It reviews GitLab/GitHub merge and pull request diffs through configurable AI models.
+  Existing review history, profile snapshots, and the explicit PublishToMergeRequest opt-in must remain backward compatible.
+  Source code, credentials, and sensitive files must never be copied into logs, telemetry, or planning artifacts.
+  GitLab Self-Managed and organizational .NET repositories are the first deployment target.
+
+rules:
+  proposal:
+    - Include explicit dependencies and non-goals.
+    - Distinguish current behavior from the proposed capability.
+  specs:
+    - Cover backward compatibility, security, idempotency, failure handling, and rollout where applicable.
+    - Every requirement must include at least one testable Given/When/Then-style scenario using WHEN and THEN bullets.
+  design:
+    - Define data model and migrations, public interfaces, data flow, permissions, observability, and rollback.
+    - Preserve optional merge-request publication unless a requirement explicitly opts in.
+  tasks:
+    - Include unit, integration, contract, and acceptance tests as applicable.
+    - Order migration and compatibility work before behavior that depends on it.
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing

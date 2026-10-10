@@ -1,0 +1,41 @@
+@page "/reviews/{RunId:guid}/publish"
+@using CodeReviewer.Web.Services
+@inject SqlDataStore Database
+@inject ReviewPublicationService Publisher
+<PageTitle>کامنت مرج ریکوست | بازبین کد</PageTitle>
+<div class="page-heading"><div><div class="eyebrow">بازبینی / انتشار</div><h1>کامنت مرج ریکوست</h1><p>متن خلاصهٔ این اجرا؛ انتشار مجدد همان کامنت را همگام می‌کند.</p></div><a class="button button-secondary" href="@($"/reviews/{RunId}")">بازگشت به گزارش</a></div>
+@if(message is not null) { <div class="notice" role="status">@message</div> }
+@if(run is null || run.Status is not ("Completed" or "Incomplete" or "Failed" or "TimedOut" or "Cancelled")) { <div class="empty-state">نتیجهٔ تکمیل‌شده‌ای برای انتشار وجود ندارد.</div> }
+else if(run.Status=="Completed" && !ReviewCommentFormatter.HasUsefulContent(run)) { <div class="notice">این اجرا توضیح مستندی از کد ندارد. برای جلوگیری از کامنت بی‌محتوا، منتشر نمی‌شود؛ ابتدا بازبینی را دوباره اجرا کنید.</div> }
+else {
+    <div class="report-actions"><button class="button button-primary" disabled="@busy" @onclick="Publish">@(busy ? "در حال همگام‌سازی…" : "انتشار کامنت‌ها و وضعیت بازبینی")</button>@if(url is not null) { <a class="button button-secondary" href="@url" target="_blank" rel="noopener noreferrer">مشاهدهٔ کامنت ↗</a> }</div>
+    <div class="notice">@ReviewDecision.Title(run)؛ یافته‌ها روی خط کد ثبت می‌شوند. Check بازبینی و برچسب MR هم همگام می‌شوند. این عملیات Approve یا Merge نیست.</div><article class="panel comment-preview">
+        @foreach(var line in ReviewCommentFormatter.Build(run).Split('\n').TakeWhile(l=>!l.StartsWith("<details>")))
+        {
+            if(line.StartsWith("### ")) { <h3>@line[4..]</h3> }
+            else if(line.StartsWith("## ")) { <h2>@line[3..]</h2> }
+            else if(line.StartsWith("> ")) { <p class="quoted">@System.Net.WebUtility.HtmlDecode(line[2..])</p> }
+            else if(!string.IsNullOrWhiteSpace(line)) { <p>@line.Replace("**","")</p> }
+        }
+    </article>
+}
+@code {
+    [Parameter] public Guid RunId {get;set;}
+    private ReviewRun? run;
+    private string? message,url;
+    private bool busy;
+    protected override void OnParametersSet() {
+        run=Database.History(id:RunId).FirstOrDefault();
+        if(run is not null && Database.ReadSnapshot<System.Text.Json.JsonElement>(run.MergeRequest.ConnectionId,$"publication:{RunId}") is var saved && saved.ValueKind==System.Text.Json.JsonValueKind.Object) {
+            if(saved.TryGetProperty("Url",out var link)) { url=link.GetString(); message="این نتیجه قبلاً منتشر شده است."; }
+            else if(saved.TryGetProperty("Reason",out var reason)) message=reason.GetString();
+        }
+    }
+    private async Task Publish() {
+        busy=true; message=null;
+        try { url=await Publisher.PublishAsync(RunId); message="کامنت با موفقیت همگام شد."; }
+        catch(Exception ex) { message=ex is InvalidOperationException ? ex.Message : "انتشار ناموفق بود؛ لاگ اجرا را بررسی کنید."; }
+        finally { busy=false; }
+    }
+}
+
