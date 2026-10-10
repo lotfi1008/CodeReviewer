@@ -109,7 +109,17 @@ public sealed class SqlDataStore
         while (reader.Read())
         {
             var secret = reader.GetString(8);
-            secret = secret.Length == 0 ? "" : secrets.Unprotect(secret);
+            if (secret.Length != 0)
+            {
+                try { secret = secrets.Unprotect(secret); }
+                catch (System.Security.Cryptography.CryptographicException)
+                {
+                    // رمزگشایی با کلید Data Protection فعلی ممکن نیست (کلید اصلی از دست رفته).
+                    // راز خالی می‌شود تا برنامه بالا بیاید و کاربر بتواند توکن/کلید را دوباره وارد کند.
+                    Console.Error.WriteLine($"هشدار: رمزگشایی راز اتصال {reader.GetGuid(0)} ممکن نبود؛ مقدار خالی در نظر گرفته شد. توکن یا کلید API را از UI دوباره وارد کنید.");
+                    secret = "";
+                }
+            }
             if (reader.GetString(1) == "Source")
                 result.Sources.Add(new SourceConnection { Id=reader.GetGuid(0), Name=reader.GetString(2), Provider=reader.GetString(3), BaseUrl=reader.GetString(4), Enabled=reader.GetBoolean(6), Token=secret });
             else
