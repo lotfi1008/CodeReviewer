@@ -1,17 +1,41 @@
 @page "/reviews/{RunId:guid}"
 @using CodeReviewer.Web.Services
 @inject SqlDataStore Database
+@inject NavigationManager Navigation
 <PageTitle>گزارش بازبینی | بازبین کد</PageTitle>
 <div class="page-heading"><div><div class="eyebrow">بازبینی / گزارش</div><h1>نتیجهٔ بازبینی</h1><p>یافته‌ها، پیامد تغییرات و مسیر پیشنهادی برای اعتبارسنجی.</p></div><a class="button button-secondary" href="/history">سوابق</a></div>
 @if(run is null) { <p>گزارش پیدا نشد.</p> }
 else {
 <div class="workspace-context"><strong>@run.MergeRequest.Title</strong><a href="@run.MergeRequest.WebUrl" target="_blank" rel="noopener">مشاهدهٔ MR</a></div>
-<div class="report-actions"><a class="button button-secondary" href="@($"/reviews/{RunId}/log")">لاگ و عیب‌یابی</a><a class="button button-secondary" href="@($"/reviews/{RunId}/publish")">انتشار</a><a class="button button-secondary" href="@($"/request/review?source={run.MergeRequest.ConnectionId}&repo={Uri.EscapeDataString(run.MergeRequest.RepositoryId)}&number={run.MergeRequest.Number}")">بازبینی تازه</a></div>
+<div class="report-actions"><a class="button button-secondary" href="@($"/reviews/{RunId}/log")">لاگ و عیب‌یابی</a><a class="button button-secondary" href="@($"/reviews/{RunId}/publish")">انتشار</a><a class="button button-secondary" href="@($"/request/review?source={run.MergeRequest.ConnectionId}&repo={Uri.EscapeDataString(run.MergeRequest.RepositoryId)}&number={run.MergeRequest.Number}")">بازبینی تازه</a>
+    @if (confirmDelete) { <button class="button button-danger" @onclick="ConfirmDelete" disabled="@busy">تأیید حذف</button><button class="button button-secondary" @onclick="CancelDelete" disabled="@busy">انصراف</button> }
+    else { <button class="button button-danger" @onclick="RequestDelete" disabled="@(busy || run.Status == "Running")" title="@(run.Status == "Running" ? "اجرای در حال انجام قابل حذف نیست" : "حذف گزارش (غیرقابل بازگشت)")">حذف</button> }
+</div>
+@if(!string.IsNullOrEmpty(message)) { <div class="notice error">@message</div> }
 @if(!ReviewCommentFormatter.HasUsefulContent(run) && run.Status=="Completed") { <div class="notice">این اجرای قدیمی تحلیل اثر و شواهد ساختاریافته ندارد؛ برای گزارش جدید بازبینی تازه لازم است.</div> }
 else { <ReviewSummary Run="run" /> }
 }
 @code {
 [Parameter] public Guid RunId {get;set;}
 private ReviewRun? run;
+private bool confirmDelete;
+private bool busy;
+private string message="";
 protected override void OnParametersSet()=>run=Database.History(id:RunId).FirstOrDefault();
+private void RequestDelete() { confirmDelete=true; message=""; }
+private void CancelDelete() { confirmDelete=false; }
+private void ConfirmDelete()
+{
+    busy=true;
+    try
+    {
+        var result=Database.DeleteReview(RunId);
+        if(result==ReviewDeleteResult.Deleted) { Navigation.NavigateTo("/history"); return; }
+        confirmDelete=false;
+        message = result==ReviewDeleteResult.Running
+            ? "این گزارش در حال اجراست و قابل حذف نیست."
+            : "گزارشی برای حذف یافت نشد؛ ممکن است قبلاً حذف شده باشد.";
+    }
+    finally { busy=false; }
+}
 }
