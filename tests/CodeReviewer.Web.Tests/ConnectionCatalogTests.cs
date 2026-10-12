@@ -11,6 +11,7 @@ public sealed class ConnectionCatalogTests : IDisposable
     private readonly string dbName = "CodeReviewerTest_" + Guid.NewGuid().ToString("N");
     private string testConnection => $"Server=localhost;Database={dbName};Integrated Security=True;Encrypt=True;TrustServerCertificate=True";
     private bool created;
+    private readonly string dataDirectory = Path.Combine(Path.GetTempPath(), "CodeReviewerTests", Guid.NewGuid().ToString("N"));
     private ConnectionCatalogStore CreateStore(IDataProtectionProvider provider, IConfiguration original)
     {
         if (!created)
@@ -18,12 +19,13 @@ public sealed class ConnectionCatalogTests : IDisposable
             using var connection = new Microsoft.Data.SqlClient.SqlConnection("Server=localhost;Database=master;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"); connection.Open();
             using var command=connection.CreateCommand(); command.CommandText=$"CREATE DATABASE [{dbName}]"; command.ExecuteNonQuery(); created=true;
         }
-        var config = new ConfigurationBuilder().AddConfiguration(original).AddInMemoryCollection(new Dictionary<string,string?> { ["ConnectionStrings:CodeReviewer"] = testConnection }).Build();
+        var config = new ConfigurationBuilder().AddConfiguration(original).AddInMemoryCollection(new Dictionary<string,string?> { ["ConnectionStrings:CodeReviewer"] = testConnection, ["Storage:DataDirectory"] = original["Storage:DataDirectory"] ?? dataDirectory }).Build();
         var database=new SqlDataStore(config,provider); database.Initialize();
         return new ConnectionCatalogStore(provider,config,database);
     }
     public void Dispose()
     {
+        if (Directory.Exists(dataDirectory)) Directory.Delete(dataDirectory, true);
         if (!created || !System.Text.RegularExpressions.Regex.IsMatch(dbName,@"^CodeReviewerTest_[0-9a-f]{32}$")) return;
         Microsoft.Data.SqlClient.SqlConnection.ClearAllPools();
         using var connection=new Microsoft.Data.SqlClient.SqlConnection("Server=localhost;Database=master;Integrated Security=True;Encrypt=True;TrustServerCertificate=True"); connection.Open();
@@ -59,9 +61,9 @@ public sealed class ConnectionCatalogTests : IDisposable
         var profile=new ReviewProfile(); database.SaveProfile(profile);
         var mr=new MergeRequestItem(Guid.NewGuid(),"23",4,"test","head","https://example.test/mr/4","author");
         var queue=new ReviewJobQueue(config,database,catalog); queue.Initialize();
-        var id=queue.Enqueue(mr,model.Id,profile.Id,publishToMergeRequest:true);
+        var id=queue.Enqueue(mr,model.Id,profile.Id,publishToMergeRequest:true,modelRetryCount:1);
         profile.Name="changed"; database.SaveProfile(profile);
-        var first=queue.Claim()!; Assert.Equal(id,first.RunId); Assert.NotEqual("changed",first.Profile.Name); Assert.True(first.PublishToMergeRequest); Assert.Null(queue.Claim());
+        var first=queue.Claim()!; Assert.Equal(id,first.RunId); Assert.NotEqual("changed",first.Profile.Name); Assert.True(first.PublishToMergeRequest); Assert.Equal(1,first.Profile.ModelRetryCount); Assert.Equal(3,database.Profiles().Single(p=>p.Id==profile.Id).ModelRetryCount); Assert.Equal(1,database.History(id:id).Single().Profile!.ModelRetryCount); Assert.Null(queue.Claim());
         queue.Initialize(); Assert.Equal(id,queue.Claim()!.RunId);
         queue.Cancel(id); Assert.True(queue.IsCancelled(id)); queue.Finish(id,false); Assert.Null(queue.Claim());
         var recovered=queue.Enqueue(mr,model.Id,profile.Id);
@@ -162,7 +164,7 @@ public sealed class ConnectionCatalogTests : IDisposable
         var source=new SourceControlService(catalog,[new FakeReviewSource(mr)],database);
         var factory=new WaitingModelFactory();
         var reviewer=new AiReviewService(catalog,source,database,factory);
-        var profile=new ReviewProfile { ModelTimeoutSeconds=5 }; database.SaveProfile(profile);
+        var profile=new ReviewProfile { ModelTimeoutSeconds=5, ModelRetryCount=0 }; database.SaveProfile(profile);
         Guid runId=default;
         var task=reviewer.ReviewAsync(mr,model.Id,profileId:profile.Id,onStarted:id=>{ runId=id; return Task.CompletedTask; });
         await factory.RequestReceived.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -222,6 +224,48 @@ public sealed class ConnectionCatalogTests : IDisposable
         Assert.Equal("Product",database.ReadSnapshot<ProjectContext>(sourceConnection.Id,$"context:{id}")!.Name);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task ConnectionFailuresAndRetriesAreStoredInRequestLog(int retryCount)
+    {
+        var protection=new EphemeralDataProtectionProvider();
+        var catalog=CreateStore(protection,new ConfigurationBuilder().Build());
+        var config=new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["ConnectionStrings:CodeReviewer"]=testConnection }).Build();
+        var database=new SqlDataStore(config,protection);
+        var connection=new SourceConnection {Name="source",BaseUrl="https://source.example",Token="test"};
+        var model=new AiConnection {Name="model",Endpoint="https://model.example/v1",Model="retry-model",ApiKey="private-key"};
+        catalog.Upsert(connection); catalog.Upsert(model);
+        var mr=new MergeRequestItem(connection.Id,"repo",1,"change","head","https://source.example/mr/1","author");
+        var source=new SourceControlService(catalog,[new FakeReviewSource(mr)],database);
+        var factory=new FailingModelFactory();
+        var profile=new ReviewProfile {ModelRetryCount=retryCount}; database.SaveProfile(profile);
+        Guid id=default;
+        await new AiReviewService(catalog,source,database,factory).ReviewAsync(mr,model.Id,profileId:profile.Id,onStarted:value=>{id=value;return Task.CompletedTask;});
+        var log=database.ReadReviewLog(id)!;
+        Assert.Equal("Incomplete",log.Status);
+        Assert.Equal(retryCount+1,factory.Requests);
+        var failures=log.Events.Where(e=>e.Message.Contains("خطای درخواست مدل")).ToArray();
+        Assert.Equal(retryCount+1,failures.Length);
+        Assert.All(failures,e=>{Assert.Equal("Test.cs",e.File); Assert.Contains("retry-model",e.Message); Assert.Contains("بخش 1/1",e.Message);});
+        Assert.Contains(log.Events,e=>e.Level=="Error" && e.File=="Test.cs");
+        Assert.All(log.Events,e=>{Assert.DoesNotContain("private-body",e.Message); Assert.DoesNotContain("private-key",e.Message);});
+    }
+
+    private sealed class FailingModelFactory : IHttpClientFactory
+    {
+        public int Requests;
+        public HttpClient CreateClient(string name)=>new(new FailingHandler(this));
+        private sealed class FailingHandler(FailingModelFactory owner) : HttpMessageHandler
+        {
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct)
+            {
+                Interlocked.Increment(ref owner.Requests);
+                return Task.FromException<HttpResponseMessage>(new HttpRequestException("private-body"));
+            }
+        }
+    }
+
     private sealed class FakeReviewSource(MergeRequestItem mr,IReadOnlyList<ChangedFile>? files=null) : ISourceControlProvider
     {
         public int Publications {get;private set;}
@@ -272,14 +316,14 @@ public sealed class ConnectionCatalogTests : IDisposable
     [Fact]
     public void SavesMultipleConnectionsAndPreservesSecretsDuringEdit()
     {
-        var previous = Environment.GetEnvironmentVariable("CODEREVIEWER_DATA_DIR");
+
         var dir = Path.Combine(Path.GetTempPath(), "CodeReviewerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
-        Environment.SetEnvironmentVariable("CODEREVIEWER_DATA_DIR", dir);
+
         try
         {
             var provider = DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(dir, "keys")));
-            var config = new ConfigurationBuilder().Build();
+            var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["Storage:DataDirectory"] = dir }).Build();
             var store = CreateStore(provider, config);
             var gitlab = new SourceConnection { Name = "GitLab", Provider = "GitLab", BaseUrl = "https://gitlab.example", Token = "secret-one" };
             var github = new SourceConnection { Name = "GitHub", Provider = "GitHub", BaseUrl = "https://api.github.com", Token = "secret-two" };
@@ -304,7 +348,7 @@ public sealed class ConnectionCatalogTests : IDisposable
         }
         finally
         {
-            Environment.SetEnvironmentVariable("CODEREVIEWER_DATA_DIR", previous);
+
             Directory.Delete(dir, true);
         }
     }
@@ -312,20 +356,20 @@ public sealed class ConnectionCatalogTests : IDisposable
     [Fact]
     public void RejectsInsecureEndpoints()
     {
-        var previous = Environment.GetEnvironmentVariable("CODEREVIEWER_DATA_DIR");
+
         var dir = Path.Combine(Path.GetTempPath(), "CodeReviewerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
-        Environment.SetEnvironmentVariable("CODEREVIEWER_DATA_DIR", dir);
+
         try
         {
             var provider = DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(dir, "keys")));
-            var store = CreateStore(provider, new ConfigurationBuilder().Build());
+            var store = CreateStore(provider, new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["Storage:DataDirectory"] = dir }).Build());
             Assert.Throws<ArgumentException>(() => store.Upsert(new SourceConnection { Name = "Bad", BaseUrl = "http://gitlab.local", Token = "x" }));
             Assert.Throws<ArgumentException>(() => store.Upsert(new AiConnection { Name = "Bad", Endpoint = "http://model.local", Model = "x", ApiKey = "x" }));
         }
         finally
         {
-            Environment.SetEnvironmentVariable("CODEREVIEWER_DATA_DIR", previous);
+
             Directory.Delete(dir, true);
         }
     }
@@ -333,17 +377,17 @@ public sealed class ConnectionCatalogTests : IDisposable
     [Fact]
     public void MigratesLegacySettingsAndReassignsDisabledDefault()
     {
-        var previous = Environment.GetEnvironmentVariable("CODEREVIEWER_DATA_DIR");
+
         var dir = Path.Combine(Path.GetTempPath(), "CodeReviewerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
-        Environment.SetEnvironmentVariable("CODEREVIEWER_DATA_DIR", dir);
+
         try
         {
             var provider = DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(dir, "keys")));
             var legacy = "{\"GitLabUrl\":\"https://gitlab.example\",\"GitLabToken\":\"old-token\",\"ModelEndpoint\":\"https://model.example/v1\",\"ModelName\":\"reviewer\",\"ModelKey\":\"old-key\"}";
             File.WriteAllText(Path.Combine(dir, "connections.protected"),
                 provider.CreateProtector("CodeReviewer.ConnectionSettings.v1").Protect(legacy));
-            var store = CreateStore(provider, new ConfigurationBuilder().Build());
+            var store = CreateStore(provider, new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string,string?> { ["Storage:DataDirectory"] = dir }).Build());
             var initial = store.Snapshot();
             Assert.Single(initial.Sources);
             Assert.Single(initial.Models);
@@ -358,7 +402,7 @@ public sealed class ConnectionCatalogTests : IDisposable
         }
         finally
         {
-            Environment.SetEnvironmentVariable("CODEREVIEWER_DATA_DIR", previous);
+
             Directory.Delete(dir, true);
         }
     }

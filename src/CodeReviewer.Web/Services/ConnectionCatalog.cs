@@ -45,8 +45,7 @@ public sealed class ConnectionCatalogStore
     {
         this.database = database;
         protector = protection.CreateProtector("CodeReviewer.ConnectionCatalog.v2");
-        var dir = Environment.GetEnvironmentVariable("CODEREVIEWER_DATA_DIR")
-            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodeReviewer");
+        var dir = DataDirectory.Resolve(config);
         Directory.CreateDirectory(dir);
         path = Path.Combine(dir, "catalog.protected");
         var saved = database.ReadCatalog();

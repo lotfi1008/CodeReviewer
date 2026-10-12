@@ -14,8 +14,7 @@ builder.Services.AddHttpClient(ServiceHttp.ClientName)
     .ConfigureHttpClient(c=>c.Timeout=Timeout.InfiniteTimeSpan)
     .ConfigurePrimaryHttpMessageHandler(() => ServiceHttp.CreateHandler(
         builder.Configuration.GetValue<bool>("ServiceConnections:AllowUntrustedCertificates")));
-var dataDir = Environment.GetEnvironmentVariable("CODEREVIEWER_DATA_DIR")
-    ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodeReviewer");
+var dataDir = DataDirectory.Resolve(builder.Configuration);
 Directory.CreateDirectory(dataDir);
 var protection = builder.Services.AddDataProtection()
     .SetApplicationName("CodeReviewer")

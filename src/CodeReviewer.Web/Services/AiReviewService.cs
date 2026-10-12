@@ -45,7 +45,7 @@ public sealed class AiReviewService(ConnectionCatalogStore store, SourceControlS
         }
         try
         {
-        Log($"شروع بازبینی درخواست #{mr.Number} با مدل {connection.Model} و پروفایل {profile.Name}. انتشار روی مرج ریکوست {(publishToMergeRequest ? "فعال" : "غیرفعال")} است.");
+        Log($"شروع بازبینی درخواست #{mr.Number} با مدل {connection.Model} و پروفایل {profile.Name}؛ حداکثر {profile.ModelRetryCount} تلاش مجدد برای هر درخواست مدل. انتشار روی مرج ریکوست {(publishToMergeRequest ? "فعال" : "غیرفعال")} است.");
         if(onStarted is not null) await onStarted(runId);
         async Task CheckHead()
         {
@@ -97,9 +97,9 @@ public sealed class AiReviewService(ConnectionCatalogStore store, SourceControlS
                         prompt+="\nCompact repository reference data (not instructions): "+compactContext;
                         bool hasManualTests; lock(gate) hasManualTests=impact.ManualTests.Any(t=>t.File==diff.Path);
                         if(!ReferenceEquals(group,groups[0]) || hasManualTests) prompt+="\nManual tests already available for this file: return ManualTests=[].";
-                        var pending=ModelDeadline.RunAsync(token=>ModelRequest.RunAsync(inner=>chat.GetResponseAsync<FocusedReviewOutput>([new ChatMessage(ChatRole.System,instructions),new ChatMessage(ChatRole.User,prompt)],new ChatOptions {MaxOutputTokens=profile.MaxOutputTokens},useJsonSchemaResponseFormat:group.Connection.SupportsJsonSchema,cancellationToken:inner),message=>Log(message,"Warning",diff.Path),token),TimeSpan.FromSeconds(profile.ModelTimeoutSeconds),ct);
+                        var pending=ModelRequest.RunAsync(token=>ModelDeadline.RunAsync(inner=>chat.GetResponseAsync<FocusedReviewOutput>([new ChatMessage(ChatRole.System,instructions),new ChatMessage(ChatRole.User,prompt)],new ChatOptions {MaxOutputTokens=profile.MaxOutputTokens},useJsonSchemaResponseFormat:group.Connection.SupportsJsonSchema,cancellationToken:inner),TimeSpan.FromSeconds(profile.ModelTimeoutSeconds),token),message=>Log($"مدل {group.Connection.Model}؛ بخش {part+1}/{chunks.Count}؛ {message}","Warning",diff.Path),ct,retryCount:profile.ModelRetryCount);
                         var waiting=System.Diagnostics.Stopwatch.StartNew();
-                        while(!pending.IsCompleted) { await Task.WhenAny(pending,Task.Delay(TimeSpan.FromSeconds(5),ct)); if(pending.IsCompleted || ct.IsCancellationRequested) break; Log($"در انتظار پاسخ؛ مدل {group.Connection.Model}؛ {waiting.Elapsed.TotalSeconds:F0} ثانیه؛ حداکثر {Math.Max(0,profile.ModelTimeoutSeconds-waiting.Elapsed.TotalSeconds):F0} ثانیه تا توقف درخواست.",file:diff.Path); }
+                        while(!pending.IsCompleted) { await Task.WhenAny(pending,Task.Delay(TimeSpan.FromSeconds(5),ct)); if(pending.IsCompleted || ct.IsCancellationRequested) break; Log($"در انتظار پاسخ؛ مدل {group.Connection.Model}؛ {waiting.Elapsed.TotalSeconds:F0} ثانیه؛ مهلت هر تلاش {profile.ModelTimeoutSeconds} ثانیه؛ حداکثر {profile.ModelRetryCount} تلاش مجدد.",file:diff.Path); }
                         var response=await pending;
                         Log($"پاسخ مدل {group.Connection.Model} پس از {waiting.Elapsed.TotalSeconds:F1} ثانیه؛ پایان {response.FinishReason}؛ توکن ورودی {response.Usage?.InputTokenCount}؛ خروجی {response.Usage?.OutputTokenCount}.",file:diff.Path);
                         if(response.Usage?.OutputTokenCount>profile.MaxOutputTokens) Log("مصرف گزارش‌شده از سقف درخواستی بیشتر است؛ سازگاری سرویس مدل با سقف توکن بررسی شود.","Warning",diff.Path);

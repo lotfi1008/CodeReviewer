@@ -31,6 +31,7 @@
 <label>اندازهٔ هر بخش از Diff (کاراکتر)<input type="number" min="1000" max="50000" step="1000" @bind="draft.MaxDiffCharacters" /></label>
 <label>مهلت کل اجرا (ثانیه)<input type="number" min="30" max="86400" @bind="draft.TimeoutSeconds" /></label>
 <label>مهلت پاسخ مدل برای هر بخش (ثانیه)<input type="number" min="5" max="600" @bind="draft.ModelTimeoutSeconds" /></label>
+<label>تعداد تلاش مجدد مدل<input type="number" min="0" max="10" @bind="draft.ModelRetryCount" /><small>پیش‌فرض ۳؛ علاوه بر درخواست اولیه. در صفحهٔ شروع بازبینی برای هر اجرا قابل تغییر است.</small></label>
 <label>تعداد فایل‌های هم‌زمان<input type="number" min="1" max="4" @bind="draft.ConcurrentFiles" /></label><label>سقف توکن خروجی هر بخش<input type="number" min="256" max="8192" step="256" @bind="draft.MaxOutputTokens" /><small>در مدل‌های استدلالی ممکن است بخشی از این سقف قبل از پاسخ نهایی مصرف شود.</small></label>
 </div></details>
 <p class="full">سرعت واقعی به مدل و حجم تغییرات بستگی دارد. فایل‌های اجرایی مرتبط بررسی می‌شوند؛ مستندات، فایل تولیدشده و تغییر صرفاً فاصله طبق تنظیمات کنار گذاشته می‌شوند. بخش‌بندی چیزی از ادامهٔ Diff فایل منتخب حذف نمی‌کند. مدل پیشنهادی را هنگام اجرا می‌توانید عوض کنید.</p>

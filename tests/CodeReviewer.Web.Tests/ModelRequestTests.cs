@@ -35,14 +35,15 @@ public class ModelRequestTests
             : Task.FromResult("ok"),logs.Add,CancellationToken.None,(_,_)=>Task.CompletedTask);
         Assert.Equal("ok",result);
         Assert.Equal(3,attempts);
-        Assert.Equal(2,logs.Count);
-        Assert.All(logs,x=>{Assert.Contains("503",x); Assert.DoesNotContain("secret",x);});
+        Assert.Equal(4,logs.Count);
+        Assert.Equal(2,logs.Count(x=>x.Contains("503")));
+        Assert.All(logs,x=>Assert.DoesNotContain("secret",x));
     }
 
     [Theory]
     [InlineData(401,1)]
     [InlineData(400,1)]
-    [InlineData(429,3)]
+    [InlineData(429,4)]
     public async Task RetryIsBoundedAndDoesNotRepeatPermanentErrors(int status,int expected)
     {
         var attempts=0;
@@ -60,6 +61,62 @@ public class ModelRequestTests
             attempts++; throw new HttpRequestException("rate limit",null,System.Net.HttpStatusCode.TooManyRequests);
         },_=>{},token),TimeSpan.FromMilliseconds(100)));
         Assert.Equal(1,attempts);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(10)]
+    public async Task ConfiguredRetriesLogEveryFailureIncludingLast(int retryCount)
+    {
+        var attempts=0;
+        var logs=new List<string>();
+        await Assert.ThrowsAsync<HttpRequestException>(()=>ModelRequest.RunAsync<string>(_=>{
+            attempts++; throw new HttpRequestException("private body");
+        },logs.Add,CancellationToken.None,(_,_)=>Task.CompletedTask,retryCount));
+        Assert.Equal(retryCount+1,attempts);
+        Assert.Equal(attempts,logs.Count(x=>x.Contains("HttpRequestException")));
+        Assert.Contains($"{attempts}/{attempts}",logs.Last());
+        Assert.All(logs,x=>Assert.DoesNotContain("private body",x));
+    }
+
+    [Fact]
+    public async Task TimedOutAttemptCanRetryAndSucceed()
+    {
+        var attempts=0;
+        var result=await ModelRequest.RunAsync(token=>ModelDeadline.RunAsync(async inner=>{
+            if(++attempts==1) await Task.Delay(Timeout.Infinite,inner);
+            return "ok";
+        },TimeSpan.FromMilliseconds(50),token),_=>{},CancellationToken.None,(_,_)=>Task.CompletedTask,1);
+        Assert.Equal("ok",result);
+        Assert.Equal(2,attempts);
+    }
+
+    [Fact]
+    public async Task CallerCancellationStopsRetries()
+    {
+        using var cancellation=new CancellationTokenSource();
+        var attempts=0;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(()=>ModelRequest.RunAsync<string>(_=>{
+            attempts++; throw new HttpRequestException();
+        },_=>{},cancellation.Token,(_,token)=>{cancellation.Cancel(); return Task.FromCanceled(token);}));
+        Assert.Equal(1,attempts);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(11)]
+    public async Task InvalidRetryCountsAreRejectedBeforeCallingModel(int retryCount)
+    {
+        await Assert.ThrowsAsync<ArgumentException>(()=>ModelRequest.RunAsync<string>(_=>throw new InvalidOperationException(),_=>{},CancellationToken.None,retryCount:retryCount));
+        Assert.Throws<ArgumentException>(()=>new ReviewProfile {ModelRetryCount=retryCount}.Validate());
+    }
+
+    [Fact]
+    public void HistoricalProfilesDefaultToThreeRetries()
+    {
+        Assert.Equal(3,System.Text.Json.JsonSerializer.Deserialize<ReviewProfile>("{}")!.ModelRetryCount);
     }
 }
 

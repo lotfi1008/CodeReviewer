@@ -10,15 +10,17 @@
 1. Windows Server با IIS، Windows Authentication، WebSocket و .NET 10 Hosting Bundle نصب شود. پس از نصب Hosting Bundle سرویس IIS راه‌اندازی مجدد شود.
 2. یک Application Pool اختصاصی، ۶۴ بیتی، با No Managed Code و هویت سرویس ثابت بسازید. Windows Authentication را فعال و Anonymous Authentication را غیرفعال کنید. این نسخه در Production ورود ویندوز را الزامی می‌کند؛ دسترسی سایت را به گروه مجاز سازمان محدود کنید.
 3. این نسخه Worker را در همان پردازش وب اجرا می‌کند؛ **فقط یک پردازش و یک نمونه** از برنامه به دیتابیس متصل باشد. `maximumWorkerProcesses=1`، `disallowOverlappingRotation=true`، `startMode=AlwaysRunning`، `idleTimeout=00:00:00`، Application Initialization و `preloadEnabled=true` تنظیم شوند. هنگام ارتقا ابتدا Pool قدیمی را متوقف کنید. صف SQL بعد از راه‌اندازی مجدد اجراهای ناتمام را از ابتدا انجام می‌دهد؛ انتشار کامنت کنترل تکرار دارد.
-4. پوشهٔ پایدار خارج از مسیر انتشار مانند `D:\CodeReviewerData` بسازید؛ فقط هویت Pool و مدیران مجوز خواندن/نوشتن داشته باشند. متغیر محیطی `CODEREVIEWER_DATA_DIR` را به آن تنظیم کنید و Load User Profile را برای Pool فعال کنید.
+4. پوشهٔ پایدار خارج از مسیر انتشار مانند `D:\CodeReviewerData` بسازید؛ فقط هویت Pool و مدیران مجوز خواندن/نوشتن داشته باشند. مقدار `Storage:DataDirectory` را در `appsettings.json` به آن تنظیم کنید (پیش‌فرض `D:/CodeReviewer/Data`) و Load User Profile را برای Pool فعال کنید.
 5. تنظیمات زیر را با IIS/environment مخصوص همین Pool اعمال کنید. مقادیر واقعی را در سورس یا ZIP قرار ندهید:
 
 ```text
 ASPNETCORE_ENVIRONMENT=Production
 ConnectionStrings__CodeReviewer=Server=SQL_HOST;Database=CodeReviewer;Integrated Security=True;Encrypt=True;TrustServerCertificate=True
-CODEREVIEWER_DATA_DIR=D:\CodeReviewerData
+Storage__DataDirectory=D:\CodeReviewerData
 AllowedHosts=review.example.internal
 ```
+
+مسیر داده از کانفیگ خوانده می‌شود و دیگر به LocalApplicationData یا متغیر قدیمی `CODEREVIEWER_DATA_DIR` برنمی‌گردد. مسیر باید مطلق باشد. پوشهٔ `keys` فعلی را هنگام تغییر مسیر به مقصد منتقل کنید تا داده‌های رمزگذاری‌شده با همان هویت سرویس قابل خواندن بمانند.
 
 برنامه schema را در شروع ایجاد/ارتقا می‌دهد؛ دیتابیس باید قبلاً ایجاد شده باشد و هویت سرویس در زمان شروع مجوز DDL لازم داشته باشد. برای SQL روی سرور جدا، حساب دامنهٔ سرویس با دسترسی مشخص استفاده کنید. پشتیبان SQL و کلیدهای Data Protection را طبق سیاست سازمان نگهداری کنید.
 

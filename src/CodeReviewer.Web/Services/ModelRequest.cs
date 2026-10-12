@@ -30,24 +30,34 @@ public static class ModelRequest
 
     private static bool Transient(Exception error) => error switch
     {
-        ClientResultException c => c.Status is 408 or 429 or 500 or 502 or 503 or 504,
+        ClientResultException c => c.Status is 0 or 408 or 429 or 500 or 502 or 503 or 504,
         HttpRequestException h => h.StatusCode is null || (int)h.StatusCode is 408 or 429 or 500 or 502 or 503 or 504,
+        TimeoutException => true,
+        OperationCanceledException => true,
         _ => false
     };
 
-    // The caller's deadline covers all attempts and backoff, so retries cannot extend it.
-    public static async Task<T> RunAsync<T>(Func<CancellationToken,Task<T>> operation, Action<string> log,
-        CancellationToken ct, Func<TimeSpan,CancellationToken,Task>? delay = null)
+    public static void ValidateRetryCount(int retryCount)
     {
+        if (retryCount is < 0 or > 10) throw new ArgumentException("تعداد تلاش مجدد مدل باید ۰ تا ۱۰ باشد.");
+    }
+
+    // Caller cancellation (including the whole review deadline) covers attempts and backoff.
+    public static async Task<T> RunAsync<T>(Func<CancellationToken,Task<T>> operation, Action<string> log,
+        CancellationToken ct, Func<TimeSpan,CancellationToken,Task>? delay = null, int retryCount = 3)
+    {
+        ValidateRetryCount(retryCount);
         delay ??= Task.Delay;
         for (var attempt = 1; ; attempt++)
         {
             ct.ThrowIfCancellationRequested();
             try { return await operation(ct); }
-            catch (Exception ex) when (Transient(ex) && attempt < 3 && !ct.IsCancellationRequested)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
+                log($"خطای درخواست مدل؛ تلاش {attempt}/{retryCount + 1}: {Describe(ex)}");
+                if (!Transient(ex) || attempt > retryCount) throw;
                 var seconds = attempt * 5;
-                log($"{Describe(ex)} تلاش مجدد {attempt + 1}/3 پس از {seconds} ثانیه، در مهلت همین درخواست.");
+                log($"تلاش مجدد {attempt + 1}/{retryCount + 1} پس از {seconds} ثانیه.");
                 await delay(TimeSpan.FromSeconds(seconds), ct);
             }
         }

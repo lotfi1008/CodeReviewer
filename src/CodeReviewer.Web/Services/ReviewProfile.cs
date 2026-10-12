@@ -20,9 +20,11 @@ public sealed class ReviewProfile
     public int MaxDiffCharacters { get; set; } = 12000;
     public int TimeoutSeconds { get; set; } = 7200;
     public int ModelTimeoutSeconds { get; set; } = 120;
+    public int ModelRetryCount { get; set; } = 3;
     public int MaxOutputTokens { get; set; } = 4096;
     public void Validate()
     {
+        ModelRequest.ValidateRetryCount(ModelRetryCount);
         if(SeverityRank(BlockingSeverity)<0) throw new ArgumentException("حداقل شدت نیازمند اصلاح معتبر نیست.");
         if(ConcurrentFiles is < 1 or > 4) throw new ArgumentException("تعداد فایل هم‌زمان باید ۱ تا ۴ باشد.");
         if(Domains is null || Domains.Count==0 || Domains.Any(d=>!ReviewDomain.Available.ContainsKey(d.Key) || d.Instructions.Length>8000) || Domains.Select(d=>d.Key).Distinct().Count()!=Domains.Count) throw new ArgumentException("حداقل یک حوزهٔ معتبر و بدون تکرار انتخاب کنید؛ دستور هر حوزه حداکثر ۸۰۰۰ کاراکتر است.");

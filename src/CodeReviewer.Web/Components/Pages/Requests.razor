@@ -67,7 +67,7 @@
     </section>
     }
     @if(View=="review") {
-    <section class="panel"><div class="panel-heading"><div><h2>شروع بازبینی</h2><p>برای مقایسه، همین درخواست را با مدل یا پروفایل دیگری دوباره بررسی کنید؛ هر اجرا گزارش جداگانه دارد.</p></div><a href="/profiles" class="text-button">مدیریت پروفایل‌ها</a></div><div class="filters"><label>روش بازبینی<select @bind="profileId" @bind:after="SelectProfile">@foreach(var p in profiles) { <option value="@p.Id">@p.Name</option> }</select></label><label>مدل این اجرا<select @bind="modelId"><option value="@Guid.Empty">انتخاب مدل فعال</option>@foreach(var m in models) { <option value="@m.Id">@m.Name · @m.Model</option> }</select></label><label class="check-field"><input type="checkbox" @bind="publishToMergeRequest" /> کامنت‌گذاری و ارسال نتیجه روی Merge Request</label><div class="filter-action"><button class="button button-primary" disabled="@(modelId==Guid.Empty || selected.Sha.Length==0)" @onclick="FullReview">شروع بازبینی</button><a class="text-button" href="/history">گزارش اجراها</a></div></div></section>
+    <section class="panel"><div class="panel-heading"><div><h2>شروع بازبینی</h2><p>برای مقایسه، همین درخواست را با مدل یا پروفایل دیگری دوباره بررسی کنید؛ هر اجرا گزارش جداگانه دارد.</p></div><a href="/profiles" class="text-button">مدیریت پروفایل‌ها</a></div><div class="filters"><label>روش بازبینی<select @bind="profileId" @bind:after="SelectProfile">@foreach(var p in profiles) { <option value="@p.Id">@p.Name</option> }</select></label><label>مدل این اجرا<select @bind="modelId"><option value="@Guid.Empty">انتخاب مدل فعال</option>@foreach(var m in models) { <option value="@m.Id">@m.Name · @m.Model</option> }</select></label><label>تعداد تلاش مجدد مدل<input type="number" min="0" max="10" @bind="modelRetryCount" /><small>پیش‌فرض ۳؛ علاوه بر درخواست اولیه. صفر یعنی بدون تکرار.</small></label><label class="check-field"><input type="checkbox" @bind="publishToMergeRequest" /> کامنت‌گذاری و ارسال نتیجه روی Merge Request</label><div class="filter-action"><button class="button button-primary" disabled="@(modelId==Guid.Empty || selected.Sha.Length==0)" @onclick="FullReview">شروع بازبینی</button><a class="text-button" href="/history">گزارش اجراها</a></div></div></section>
     <div class="notice">حوزه‌ها: @string.Join("، ",(profiles.FirstOrDefault(p=>p.Id==profileId)?.Domains ?? []).Select(d=>ReviewDomain.Available[d.Key])) · همهٔ فایل‌های متنی بررسی می‌شوند. مهلت پاسخ هر بخش: @(profiles.FirstOrDefault(x=>x.Id==profileId)?.ModelTimeoutSeconds ?? 60) ثانیه. اگر پاسخ یک بخش کامل نباشد، آن فایل ناموفق ثبت می‌شود و فایل‌های دیگر ادامه می‌یابند. می‌توانید مدل یا پروفایل را عوض کنید و دوباره «شروع بازبینی» را بزنید.</div>
     }
     @if(View is "note" or "help" or "decision" or "notes") {
@@ -164,9 +164,10 @@
     private void ChangeFile() { noteLine=null; }
     private Guid profileId;
     private bool publishToMergeRequest;
+    private int modelRetryCount = 3;
     private IReadOnlyList<ReviewProfile> profiles=[];
     private void SelectNoteLine(int line) { noteLine=line; Navigation.NavigateTo(TaskUrl("note")); }
-    private void SelectProfile() { var p=profiles.FirstOrDefault(x=>x.Id==profileId); if(p?.ModelId is Guid id) modelId=id; }
+    private void SelectProfile() { var p=profiles.FirstOrDefault(x=>x.Id==profileId); modelRetryCount=p?.ModelRetryCount ?? 3; if(p?.ModelId is Guid id) modelId=id; }
     private int listPage=1;
     private bool busy;
     private string? error, message, progress;
@@ -204,7 +205,7 @@
     });
     private Task SaveDecision() => Run("در حال ذخیرهٔ جمع‌بندی…", () => { Workspace.SaveDecision(selected!,decision,summary,author); summary=""; entries=Database.ReviewEntries(selected!); message="جمع‌بندی این نسخه ذخیره شد."; Navigation.NavigateTo(TaskUrl("notes")); return Task.CompletedTask; });
     private Task FullReview() => Run("ثبت در صف پردازش…", () => {
-        liveRunId=Queue.Enqueue(selected!,modelId,profileId,publishToMergeRequest);
+        liveRunId=Queue.Enqueue(selected!,modelId,profileId,publishToMergeRequest,modelRetryCount);
         Navigation.NavigateTo($"/reviews/{liveRunId}/log");
         return Task.CompletedTask;
     });

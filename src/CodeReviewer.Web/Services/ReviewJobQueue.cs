@@ -21,9 +21,11 @@ public sealed class ReviewJobQueue(IConfiguration config,SqlDataStore database,C
             """;
         q.ExecuteNonQuery();
     }
-    public Guid Enqueue(MergeRequestItem mr,Guid modelId,Guid profileId,bool publishToMergeRequest=false)
+    public Guid Enqueue(MergeRequestItem mr,Guid modelId,Guid profileId,bool publishToMergeRequest=false,int? modelRetryCount=null)
     {
-        var profile=database.Profiles().Single(p=>p.Id==profileId); profile.Validate(); profile.ModelId=modelId;
+        var profile=database.Profiles().Single(p=>p.Id==profileId);
+        if(modelRetryCount.HasValue) profile.ModelRetryCount=modelRetryCount.Value;
+        profile.Validate(); profile.ModelId=modelId;
         var model=catalog.Snapshot().Models.Single(m=>m.Id==modelId && m.Enabled);
         foreach(var id in profile.Domains.Where(d=>d.ModelId.HasValue).Select(d=>d.ModelId!.Value))
             if(!catalog.Snapshot().Models.Any(m=>m.Id==id && m.Enabled)) throw new ArgumentException("مدل یکی از حوزه‌ها غیرفعال یا حذف شده است.");
