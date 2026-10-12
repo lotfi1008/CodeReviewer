@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CodeReviewer.Web/CodeReviewer.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CodeReviewer.Web.Tests/CodeReviewer.Web.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/CodeReviewer.Phase0Probe/CodeReviewer.Phase0Probe.csproj" />
+  </Folder>
+</Solution>

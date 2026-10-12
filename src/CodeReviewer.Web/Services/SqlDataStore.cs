@@ -9,6 +9,8 @@ public sealed record ReviewRun(Guid Id, MergeRequestItem MergeRequest, string Mo
     string Status, DateTime StartedUtc, DateTime? FinishedUtc, int FilesReviewed, string? Note,
     IReadOnlyList<ReviewFinding> Findings, ReviewProfile? Profile = null, IReadOnlyList<FileAssessment>? Coverage = null, ChangeImpactResult? Impact = null);
 
+public enum ReviewDeleteResult { Deleted, NotFound, Running }
+
 public sealed class SqlDataStore
 {
     private readonly string connectionString;
@@ -109,7 +111,17 @@ public sealed class SqlDataStore
         while (reader.Read())
         {
             var secret = reader.GetString(8);
-            secret = secret.Length == 0 ? "" : secrets.Unprotect(secret);
+            if (secret.Length != 0)
+            {
+                try { secret = secrets.Unprotect(secret); }
+                catch (System.Security.Cryptography.CryptographicException)
+                {
+                    // رمزگشایی با کلید Data Protection فعلی ممکن نیست (کلید اصلی از دست رفته).
+                    // راز خالی می‌شود تا برنامه بالا بیاید و کاربر بتواند توکن/کلید را دوباره وارد کند.
+                    Console.Error.WriteLine($"هشدار: رمزگشایی راز اتصال {reader.GetGuid(0)} ممکن نبود؛ مقدار خالی در نظر گرفته شد. توکن یا کلید API را از UI دوباره وارد کنید.");
+                    secret = "";
+                }
+            }
             if (reader.GetString(1) == "Source")
                 result.Sources.Add(new SourceConnection { Id=reader.GetGuid(0), Name=reader.GetString(2), Provider=reader.GetString(3), BaseUrl=reader.GetString(4), Enabled=reader.GetBoolean(6), Token=secret });
             else
@@ -201,6 +213,39 @@ public sealed class SqlDataStore
             results[i]=results[i] with { Findings=findings, Coverage=ReadSnapshot<List<FileAssessment>>(results[i].MergeRequest.ConnectionId,$"coverage:{results[i].Id}"), Impact=ReadSnapshot<ChangeImpactResult>(results[i].MergeRequest.ConnectionId,$"impact:{results[i].Id}") };
         }
         return results;
+    }
+
+    // حذف واقعی و اتمی یک گزارش بازبینی به‌همراه همهٔ دادهٔ وابستهٔ آن.
+    // خروجی Idempotent است: پیام صریح (NotFound/Running) به‌جای استثنا برگردانده می‌شود.
+    public ReviewDeleteResult DeleteReview(Guid id)
+    {
+        using var connection=Open();
+        using var transaction=connection.BeginTransaction();
+        using var command=connection.CreateCommand(); command.Transaction=transaction;
+
+        // قفل به‌روزرسانی تا بین بررسی وضعیت و حذف، Worker نتواند وضعیت را تغییر دهد.
+        command.CommandText="SELECT Status,MergeRequest FROM dbo.ReviewRuns WITH (UPDLOCK) WHERE Id=@id";
+        Add(command,"@id",id);
+        string status; Guid connectionId;
+        using (var reader=command.ExecuteReader())
+        {
+            if(!reader.Read()) { reader.Close(); transaction.Rollback(); return ReviewDeleteResult.NotFound; }
+            status=reader.GetString(0);
+            connectionId=JsonSerializer.Deserialize<MergeRequestItem>(reader.GetString(1))!.ConnectionId;
+        }
+        if(status=="Running") { transaction.Rollback(); return ReviewDeleteResult.Running; }
+
+        // ترتیب حذف: وابستگی‌ها پیش از والد تا کلیدهای خارجی نقض نشوند.
+        command.CommandText="DELETE dbo.Findings WHERE ReviewId=@id"; command.ExecuteNonQuery();
+        command.CommandText="DELETE dbo.ReviewEvents WHERE ReviewId=@id"; command.ExecuteNonQuery();
+        command.CommandText="DELETE dbo.SourceSnapshots WHERE ConnectionId=@connection AND Scope LIKE '%:' + CONVERT(nvarchar(36),@id)";
+        command.Parameters.Clear(); Add(command,"@connection",connectionId); Add(command,"@id",id); command.ExecuteNonQuery();
+        command.Parameters.Clear();
+        command.CommandText="DELETE dbo.ReviewRuns WHERE Id=@id"; Add(command,"@id",id);
+        if(command.ExecuteNonQuery()!=1) { transaction.Rollback(); return ReviewDeleteResult.NotFound; }
+
+        transaction.Commit();
+        return ReviewDeleteResult.Deleted;
     }
 
     public void SaveSnapshot<T>(Guid connectionId, string scope, T value)
