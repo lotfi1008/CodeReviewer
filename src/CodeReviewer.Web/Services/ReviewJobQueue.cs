@@ -7,7 +7,7 @@ public sealed record ReviewJob(Guid RunId,MergeRequestItem Request,Guid ModelId,
 
 public sealed class ReviewJobQueue(IConfiguration config,SqlDataStore database,ConnectionCatalogStore catalog)
 {
-    private SqlConnection Open() { var c=new SqlConnection(config.GetConnectionString("CodeReviewer")); c.Open(); return c; }
+    private SqlConnection Open() { var c=new SqlConnection(SqlConnections.ConnectionString(config)); c.Open(); return c; }
     public void Initialize()
     {
         using var c=Open(); using var q=c.CreateCommand();

@@ -9,11 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-builder.Services.AddHttpClient();
-builder.Services.AddHttpClient(ServiceHttp.ClientName)
-    .ConfigureHttpClient(c=>c.Timeout=Timeout.InfiniteTimeSpan)
-    .ConfigurePrimaryHttpMessageHandler(() => ServiceHttp.CreateHandler(
-        builder.Configuration.GetValue<bool>("ServiceConnections:AllowUntrustedCertificates")));
+ServiceHttp.AddClients(builder.Services, builder.Configuration);
 var dataDir = DataDirectory.Resolve(builder.Configuration);
 Directory.CreateDirectory(dataDir);
 var protection = builder.Services.AddDataProtection()
@@ -47,7 +43,7 @@ if(Guid.TryParse(builder.Configuration["InspectReviewTarget"],out var inspectId)
     var run=database.History(id:inspectId).Single();
     var connection=app.Services.GetRequiredService<ConnectionCatalogStore>().Snapshot().Sources.Single(s=>s.Id==run.MergeRequest.ConnectionId);
     if(connection.Provider!="GitLab") throw new NotSupportedException("Inspection requires GitLab.");
-    using var client=app.Services.GetRequiredService<IHttpClientFactory>().CreateClient(ServiceHttp.ClientName);
+    using var client=app.Services.GetRequiredService<IHttpClientFactory>().CreateClient(ServiceHttp.SourceControlClientName);
     client.BaseAddress=new Uri(connection.BaseUrl.TrimEnd('/')+"/");
     client.DefaultRequestHeaders.Add("PRIVATE-TOKEN",connection.Token);
     using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -92,7 +88,7 @@ if (builder.Configuration.GetValue<bool>("CheckSourceConnections"))
         }
         catch (Exception ex)
         {
-            var result = ex is InvalidOperationException ? ex.Message : ex.GetType().Name;
+            var result = SourceControlErrors.Describe(ex);
             database.RecordCheck(connection.Id, false, result);
             Console.WriteLine($"{connection.Name}: {result}");
             Environment.ExitCode = 1;

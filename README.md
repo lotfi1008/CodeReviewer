@@ -27,7 +27,7 @@ dotnet run --project src/CodeReviewer.Web
 
 اطلاعات اتصال در جدول Connections ذخیره می‌شود و فقط توکن‌ها و کلیدهای API با ASP.NET Core Data Protection رمزگذاری می‌شوند. مسیر پایه از `Storage:DataDirectory` در appsettings خوانده می‌شود (پیش‌فرض `D:/CodeReviewer/Data`) و کلیدهای رمزگذاری در زیرپوشهٔ `keys` آن قرار دارند؛ مسیر باید مطلق و قابل نوشتن باشد؛ از پایگاه داده و کلیدها با هم پشتیبان بگیرید. در محیط Production دسترسی به UI به احراز هویت Windows نیاز دارد؛ IIS باید Windows Authentication داشته باشد.
 
-محیط Development از SQL Server محلی و دیتابیس `CodeReviewer` با Windows Integrated Authentication استفاده می‌کند. دیتابیس باید پیش از اجرا ساخته شود؛ برنامه جدول‌ها را ایجاد می‌کند. مقدار `TrustServerCertificate=True` فقط برای SQL محلی توسعه تنظیم شده است. در Production مقدار `ConnectionStrings__CodeReviewer` با گواهی معتبر و حساب محدود تنظیم شود. طبق تنظیم فعلی، `ServiceConnections:AllowUntrustedCertificates=true` اعتبارسنجی گواهی سرور را برای GitLab، GitHub، OpenAI-compatible، Azure OpenAI و Ollama غیرفعال می‌کند؛ رمزگذاری HTTPS برقرار می‌ماند، ولی هویت سرور از روی گواهی تأیید نمی‌شود. برای اعتبارسنجی استاندارد مقدار را `false` کرده و برنامه را راه‌اندازی مجدد کنید. این تنظیم متعلق به همین سامانه است و تنظیمات Windows یا مرورگر را تغییر نمی‌دهد. ابزار Phase0Probe نیز گواهی داخلی را می‌پذیرد؛ برای بررسی استاندارد متغیر `REVIEW_ALLOW_UNTRUSTED_CERTIFICATES=false` را تنظیم کنید.
+محیط Development از SQL Server محلی و دیتابیس `CodeReviewer` با Windows Integrated Authentication استفاده می‌کند. دیتابیس باید پیش از اجرا ساخته شود؛ برنامه جدول‌ها را ایجاد می‌کند. تمام اتصال‌های HTTP خروجی برنامه و ابزار Phase0Probe گواهی‌های نامعتبر، خودامضا، منقضی و نام میزبان نامطابق را می‌پذیرند. این سیاست برای GitLab، GitHub، مدل‌ها، دریافت فهرست مدل‌ها، تشخیص اتصال و کلاینت پیش‌فرض HTTP برقرار است. اتصال SQL در ذخیره‌سازی و صف نیز همیشه `TrustServerCertificate=True` دارد؛ `Encrypt=Strict` به `Mandatory` تبدیل می‌شود تا رمزگذاری با گواهی داخلی برقرار بماند. مقدارهای قدیمی `ServiceConnections:AllowUntrustedCertificates` و `REVIEW_ALLOW_UNTRUSTED_CERTIFICATES` دیگر سیاست گواهی را تغییر نمی‌دهند.
 
 این نسخه یک میزبان دارد؛ بازیابی اجراهای قطع‌شده در شروع همان میزبان انجام می‌شود و اجرای چند نمونهٔ هم‌زمان هنوز پشتیبانی نمی‌شود. تاریخچه حداکثر ۱۰۰ اجرای اخیر را نمایش می‌دهد، ولی رکوردهای قدیمی‌تر از SQL حذف نمی‌شوند. MR مشاهده‌شده در مرورگر با SHA خالی به‌عنوان snapshot اولیه ثبت شده؛ برای اجرای بررسی باید از API همگام‌سازی شود.
 
@@ -37,7 +37,7 @@ dotnet run --project src/CodeReviewer.Web
 - آماده: SQL Server برای اتصال‌ها، تنظیمات پیش‌فرض، snapshot مخزن/MR/Diff، وضعیت اجرا، یافته‌ها و آزمایش اتصال؛ صفحهٔ سوابق و ثبت قطع شدن اجرای قبلی.
 - آماده برای GitLab: انتشار اختیاری Summary، یافته‌های Inline، وضعیت و برچسب‌ها فقط با انتخاب چک‌باکس «کامنت‌گذاری و ارسال نتیجه» هنگام شروع Review؛ کنترل Head SHA و جلوگیری از تکرار در میزبان واحد.
 - در ادامه: دریافت خودکار Webhook، Roslyn، قوانین Repository و انتشار نتایج در GitHub.
-- وابسته به زیرساخت: گواهی قابل اعتماد GitLab و endpoint مدل داخلی. وضعیت فاز ۰ در [docs/phase-0.md](docs/phase-0.md) ثبت شده است.
+- وابسته به زیرساخت: دسترسی شبکه به GitLab و endpoint مدل داخلی. وضعیت فاز ۰ در [docs/phase-0.md](docs/phase-0.md) ثبت شده است.
 
 اطلاعات ورود GitLab در مرورگر به سرویس API منتقل نمی‌شود. برای سرویس باید توکن API جداگانه در UI ثبت شود.
 

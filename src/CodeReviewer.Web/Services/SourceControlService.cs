@@ -120,7 +120,7 @@ public sealed partial class GitLabProvider(IHttpClientFactory clients) : ISource
 
     private HttpClient Client(SourceConnection connection)
     {
-        var client = clients.CreateClient(ServiceHttp.ClientName);
+        var client = clients.CreateClient(ServiceHttp.SourceControlClientName);
         client.BaseAddress = new Uri(connection.BaseUrl.TrimEnd('/') + "/");
         client.Timeout = TimeSpan.FromSeconds(30);
         client.DefaultRequestHeaders.Add("PRIVATE-TOKEN", connection.Token);
@@ -186,7 +186,7 @@ public sealed class GitHubProvider(IHttpClientFactory clients) : ISourceControlP
 
     private HttpClient Client(SourceConnection connection)
     {
-        var client = clients.CreateClient(ServiceHttp.ClientName);
+        var client = clients.CreateClient(ServiceHttp.SourceControlClientName);
         client.BaseAddress = new Uri(connection.BaseUrl.TrimEnd('/') + "/");
         client.Timeout = TimeSpan.FromSeconds(30);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", connection.Token);

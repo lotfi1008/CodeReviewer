@@ -3,13 +3,20 @@ namespace CodeReviewer.Web.Services;
 public static class ServiceHttp
 {
     public const string ClientName = "ConnectedServices";
+    public const string SourceControlClientName = "SourceControl";
 
-    public static HttpClientHandler CreateHandler(bool allowUntrustedCertificates) => new()
+    public static void AddClients(IServiceCollection services, IConfiguration config)
     {
-        // Limited to the source-control and model clients, never process-wide TLS settings.
+        services.ConfigureHttpClientDefaults(client => client.ConfigurePrimaryHttpMessageHandler(() => CreateHandler()));
+        services.AddHttpClient(ClientName).ConfigureHttpClient(client => client.Timeout = Timeout.InfiniteTimeSpan);
+        services.AddHttpClient(SourceControlClientName).ConfigurePrimaryHttpMessageHandler(() =>
+            CreateHandler(config.GetValue("SourceControlConnections:UseProxy", true)));
+    }
+
+    public static HttpClientHandler CreateHandler(bool useProxy = true) => new()
+    {
+        UseProxy = useProxy,
         AllowAutoRedirect = false,
-        ServerCertificateCustomValidationCallback = allowUntrustedCertificates
-            ? HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
-            : null
+        ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
     };
 }

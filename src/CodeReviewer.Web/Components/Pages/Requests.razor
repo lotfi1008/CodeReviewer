@@ -192,6 +192,7 @@
         catch(TimeoutException ex) { error=ex.Message; }
         catch(OperationCanceledException) { error="اجرا لغو شد. می‌توانید مدل و پروفایل را تغییر دهید و دوباره بررسی کنید."; }
         catch(ArgumentException ex) { error=ex.Message; }
+        catch(HttpRequestException ex) { error=SourceControlErrors.Describe(ex); }
         catch(InvalidOperationException ex) { error=ex.Message; }
         catch(Exception ex) { error="عملیات تکمیل نشد؛ وضعیت اتصال و گواهی سرویس را بررسی کنید. " + ex.GetType().Name; }
         finally { busy=false; }

@@ -17,8 +17,7 @@ public sealed class SqlDataStore
     private readonly IDataProtector secrets;
     public SqlDataStore(IConfiguration config, IDataProtectionProvider protection)
     {
-        connectionString = config.GetConnectionString("CodeReviewer")
-            ?? throw new InvalidOperationException("ConnectionStrings:CodeReviewer تنظیم نشده است.");
+        connectionString = SqlConnections.ConnectionString(config);
         secrets = protection.CreateProtector("CodeReviewer.SqlSecrets.v1");
     }
 

@@ -116,9 +116,7 @@ static bool Fail(string operation, HttpStatusCode code)
 static HttpClientHandler CreateHandler() => new()
 {
     AllowAutoRedirect = false,
-    ServerCertificateCustomValidationCallback =
-        string.Equals(Environment.GetEnvironmentVariable("REVIEW_ALLOW_UNTRUSTED_CERTIFICATES"), "false", StringComparison.OrdinalIgnoreCase)
-            ? null : HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+    ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
 };
 
 public sealed record ProbeFinding(string Category, string Title, double Confidence);

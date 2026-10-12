@@ -172,7 +172,7 @@
     private void AskRemoveSource(Guid id) { ClearStatus(); pendingRemoval = ("source", id); }
     private void AskRemoveModel(Guid id) { ClearStatus(); pendingRemoval = ("model", id); }
     private void ConfirmRemoval() { if (pendingRemoval is null) return; if (pendingRemoval.Value.Kind == "source") Store.RemoveSource(pendingRemoval.Value.Id); else Store.RemoveModel(pendingRemoval.Value.Id); pendingRemoval = null; Reload(); Cancel(); message = "اتصال حذف شد."; }
-    private async Task TestSource(Guid id) { ClearStatus(); busy = true; try { message = "اتصال برقرار است: " + await Sources.TestAsync(id); Database.RecordCheck(id, true, message); } catch (Exception ex) { error = "آزمایش اتصال ناموفق بود؛ فعال بودن اتصال، توکن و گواهی HTTPS را بررسی کنید. " + ex.GetType().Name; Database.RecordCheck(id, false, error); } finally { busy = false; } }
+    private async Task TestSource(Guid id) { ClearStatus(); busy = true; try { message = "اتصال برقرار است: " + await Sources.TestAsync(id); Database.RecordCheck(id, true, message); } catch (Exception ex) { error = "آزمایش اتصال ناموفق بود: " + SourceControlErrors.Describe(ex); Database.RecordCheck(id, false, error); } finally { busy = false; } }
     private async Task TestModel(Guid id) { ClearStatus(); busy = true; try { var model = catalog.Models.Single(x => x.Id == id); message = await Reviewer.TestAsync(model); Database.RecordCheck(id, true, message); } catch (Exception ex) { error = $"آزمایش مدل ناموفق بود: {ex.GetType().Name}. نشانی، کلید و قابلیت JSON Schema را بررسی کنید."; Database.RecordCheck(id, false, error); } finally { busy = false; } }
 }
 
